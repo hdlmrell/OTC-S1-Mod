@@ -911,11 +911,10 @@ namespace OverTheCounter.Logic
                 evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + Config.DeadlineMinutes.Value;
                 evt.IsAccepted = true;
 
-                // Make the NPC run to the deal location (matches RequestProductBehaviour speed)
+                // Make the NPC run to the deal location (~6.5 m/s, near full run)
                 try
                 {
-                    evt.Customer.NPC.Movement.SpeedController.AddSpeedControl(
-                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
+                    evt.Customer.NPC.Movement.SpeedController.AddBlendSpeedControl("desperation", 10, 0.9f);
                 }
                 catch (Exception ex)
                 {

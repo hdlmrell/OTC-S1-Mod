@@ -439,7 +439,7 @@ namespace OverTheCounter.Logic
                 if (movement == null) return;
 
                 // If the NPC still has an active destination, nothing to do
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 if (IsWalkingBack)
                 {
@@ -520,15 +520,17 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Sets the drifter's movement speed to run/chase speed (0.9 scale).
-        /// Used for narcs fleeing after a sting.
+        /// Sets the drifter's movement speed to run/chase speed (0.9 walk→run blend).
+        /// Used for narcs fleeing after a sting. The control is never removed and its
+        /// priority (10) outranks vanilla behaviour speeds, so the drifter keeps running
+        /// until it despawns.
         /// </summary>
         public void SetRunSpeed()
         {
             try
             {
                 if (GameNpc?.Movement == null) return;
-                GameNpc.Movement.MovementSpeedScale = 0.9f;
+                GameNpc.Movement.SpeedController.AddBlendSpeedControl("otc_drifter_run", 10, 0.9f);
             }
             catch (Exception ex)
             {

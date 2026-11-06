@@ -65,6 +65,8 @@ namespace OverTheCounter
         private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "_customerSlots");
         private static readonly FieldInfo _hsDoneButton = AccessTools.Field(typeof(HandoverScreen), "_doneButton");
         private static readonly FieldInfo _hsContractMode = AccessTools.Field(typeof(HandoverScreen), "_contractMode");
+        private static readonly FieldInfo _movAgent = AccessTools.Field(typeof(NPCMovement), "_agent");
+        private static readonly FieldInfo _movHasDestination = AccessTools.Field(typeof(NPCMovement), "_hasDestination");
 #endif
 
         // --- VOEmitter.Database (private field on Mono, SetDatabase() is public) ---
@@ -271,6 +273,26 @@ namespace OverTheCounter
             return hs._contractMode?.CurrentContract;
 #else
             return ((HandoverScreenContractMode)_hsContractMode?.GetValue(hs))?.CurrentContract;
+#endif
+        }
+
+        // --- NPCMovement._agent (private NavMeshAgent) ---
+        public static UnityEngine.AI.NavMeshAgent GetAgent(this NPCMovement movement)
+        {
+#if IL2CPP
+            return movement._agent;
+#else
+            return (UnityEngine.AI.NavMeshAgent)_movAgent?.GetValue(movement);
+#endif
+        }
+
+        // --- NPCMovement._hasDestination (private bool, true while a SetDestination walk is active) ---
+        public static bool GetHasDestination(this NPCMovement movement)
+        {
+#if IL2CPP
+            return movement._hasDestination;
+#else
+            return _movHasDestination != null && (bool)_movHasDestination.GetValue(movement);
 #endif
         }
     }

@@ -510,17 +510,20 @@ namespace OverTheCounter
         private void ToggleManagerSpeedBoost()
         {
             _managerSpeedBoosted = !_managerSpeedBoosted;
-            // Normal manager speed is 0.106f (~30% above default 0.08f); 2.4x = 0.254f
+            // Walk→run blends: ON = 0.254 (~3.1 m/s), OFF = 0.106 (~2.4 m/s). OFF does not
+            // restore the manager's upgrade tier speed (tier 0 = 0.120).
             float speed = _managerSpeedBoosted ? 0.254f : 0.106f;
             foreach (var mgr in ManagerInstance.Active.Values)
             {
                 try
                 {
                     var speedCtrl = mgr.GameNpc?.Movement?.SpeedController;
-                    speedCtrl?.AddSpeedControl(
-                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speed));
+                    speedCtrl?.AddBlendSpeedControl("manager", 1, speed);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, $"Manager speed boost failed for {mgr.Id}: {ex.Message}");
+                }
             }
             OTCLog.Msg(OTCLog.Systems.Patch, $"Manager speed boost: {(_managerSpeedBoosted ? "ON" : "OFF")} ({speed:F3})");
         }

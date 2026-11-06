@@ -37,7 +37,7 @@ namespace OverTheCounter.Logic
         private const int RushThresholdMinutes = 60;     // speed boost when < 60 min to close
         private const int CutoffMinutes = 30;            // don't redirect when < 30 min to close
 
-        private const float RushSpeed = 0.4f; // same as RequestProductBehaviour fast walk
+        private const float RushSpeed = 0.4f; // walk→run blend, ~3.9 m/s fast walk
         private const string RushSpeedId = "otc_deal_rush";
 
         private const int DealXP = 20;
@@ -286,8 +286,7 @@ namespace OverTheCounter.Logic
             // Apply rush speed if close to closing time
             if (ShouldRush())
             {
-                var speedControl = new NPCSpeedController.SpeedControl(RushSpeedId, 5, RushSpeed);
-                vanillaCustomer.NPC.Movement.SpeedController.AddSpeedControl(speedControl);
+                vanillaCustomer.NPC.Movement.SpeedController.AddBlendSpeedControl(RushSpeedId, 5, RushSpeed);
             }
 
             // Create deal CustomerInstance wrapping the vanilla NPC

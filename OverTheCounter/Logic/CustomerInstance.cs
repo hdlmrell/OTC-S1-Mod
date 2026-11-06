@@ -925,9 +925,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null)
-                    agent.avoidancePriority = priority;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(priority);
             }
             catch (Exception ex)
             {
@@ -936,20 +934,21 @@ namespace OverTheCounter.Logic
             }
         }
 
-        private int _savedAvoidanceType = -1;
+        private bool _obstacleAvoidanceDisabled;
 
         /// <summary>
         /// Disables NavMeshAgent obstacle avoidance so NPCs don't block each other
-        /// in tight building interiors. Saves the current type for restoration.
+        /// in tight building interiors. Goes through NPCMovement because the game
+        /// re-applies the agent's avoidance type every 0.5s from its own flag.
         /// </summary>
         public void DisableObstacleAvoidance()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null) return;
-                _savedAvoidanceType = (int)agent.obstacleAvoidanceType;
-                agent.obstacleAvoidanceType = UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
+                var movement = GameNpc?.Movement;
+                if (movement == null) return;
+                movement.SetObstacleAvoidanceEnabled(false);
+                _obstacleAvoidanceDisabled = true;
             }
             catch (Exception ex)
             {
@@ -959,16 +958,16 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Restores the NPC's obstacle avoidance type to what it was before entering the building.
+        /// Re-enables obstacle avoidance if <see cref="DisableObstacleAvoidance"/> turned it off.
         /// </summary>
         public void RestoreObstacleAvoidance()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null || _savedAvoidanceType < 0) return;
-                agent.obstacleAvoidanceType = (UnityEngine.AI.ObstacleAvoidanceType)_savedAvoidanceType;
-                _savedAvoidanceType = -1;
+                var movement = GameNpc?.Movement;
+                if (movement == null || !_obstacleAvoidanceDisabled) return;
+                movement.SetObstacleAvoidanceEnabled(true);
+                _obstacleAvoidanceDisabled = false;
             }
             catch (Exception ex)
             {

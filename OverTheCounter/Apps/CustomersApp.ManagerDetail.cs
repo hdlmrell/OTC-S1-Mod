@@ -523,7 +523,7 @@ namespace OverTheCounter.Apps
                     else
                     {
                         var movement = _detailManager?.GameNpc?.Movement;
-                        if (movement != null && movement.HasDestination)
+                        if (movement != null && movement.GetHasDestination())
                         {
                             Vector2 destMapPos = mapUtil.GetMapPosition(movement.CurrentDestination);
                             _minimapDestRect.anchoredPosition = new Vector2(destMapPos.x * scaleX, destMapPos.y * scaleY);

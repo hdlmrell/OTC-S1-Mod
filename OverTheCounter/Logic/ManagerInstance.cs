@@ -254,8 +254,7 @@ namespace OverTheCounter.Logic
 
                 speedCtrl.RemoveSpeedControl("manager");
                 float speedVal = ManagerUpgrades.GetSpeedControlValue(Configuration.SpeedTier);
-                speedCtrl.AddSpeedControl(
-                    new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speedVal));
+                speedCtrl.AddBlendSpeedControl("manager", 1, speedVal);
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplySpeedUpgrade: tier={Configuration.SpeedTier} speed={speedVal:F3}");
@@ -697,20 +696,24 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(WALK_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogWarning($"set avoidance priority {WALK_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         private void RestoreIdlePriority()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(IDLE_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogWarning($"set avoidance priority {IDLE_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         private void WarpToPosition(Vector3 position)
@@ -895,7 +898,7 @@ namespace OverTheCounter.Logic
                 catch { }
 
                 // If the NPC still has an active destination, nothing to do
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 if (TargetLocation != null && !ArrivedAtDestination)
                 {

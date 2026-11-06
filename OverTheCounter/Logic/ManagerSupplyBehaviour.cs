@@ -1875,7 +1875,7 @@ namespace OverTheCounter.Logic
                 if (_manager.IsPlayerInteracting) return;
 
                 // Already has a destination
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 var pos = _manager.Position ?? Vector3.zero;
                 float dist = Vector3.Distance(pos, _currentWalkTarget);
@@ -2379,10 +2379,12 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = _manager.GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+                _manager.GameNpc?.Movement?.SetAgentAvoidancePriority(WALK_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _manager.LogWarning($"set avoidance priority {WALK_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -2392,10 +2394,12 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = _manager.GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+                _manager.GameNpc?.Movement?.SetAgentAvoidancePriority(IDLE_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _manager.LogWarning($"set avoidance priority {IDLE_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         /// <summary>

@@ -307,6 +307,7 @@
 		<Compile Include="Utilities\CustomerLocator.cs" />
 		<Compile Include="Utilities\FormatUtils.cs" />
 		<Compile Include="Utilities\NetworkHelper.cs" />
+		<Compile Include="Utilities\NpcSpeed.cs" />
 		<Compile Include="Logic\NotificationManager.cs" />
 		<Compile Include="Logic\ConsolidatedQuest.cs" />
 		<Compile Include="Logic\DesperationManager.cs" />

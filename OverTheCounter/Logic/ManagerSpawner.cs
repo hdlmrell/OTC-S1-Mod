@@ -322,10 +322,12 @@ namespace OverTheCounter.Logic
                 try
                 {
                     var speedCtrl = npc.Movement?.SpeedController;
-                    speedCtrl?.AddSpeedControl(
-                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, 0.120f));
+                    speedCtrl?.AddBlendSpeedControl("manager", 1, 0.120f);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"Speed control setup failed for {id}: {ex.Message}");
+                }
 
                 OTCLog.Msg(OTCLog.Systems.Manager, $"Spawned {id} ({firstName} {lastName}) at {spawnPos}");
                 return (npc, avatarSettings);
@@ -1179,9 +1181,9 @@ namespace OverTheCounter.Logic
                         for (int e = 0; e < prop.Employees.Count; e++)
                         {
                             var emp = prop.Employees[e];
-                            if (emp?.Movement?.Agent == null) continue;
+                            var empAgent = emp?.Movement?.GetAgent();
+                            if (empAgent == null) continue;
 
-                            var empAgent = emp.Movement.Agent;
                             _cachedEmployeeAgentTypeID = empAgent.agentTypeID;
                             _cachedEmployeeAreaMask = empAgent.areaMask;
                             agentTypeID = empAgent.agentTypeID;
