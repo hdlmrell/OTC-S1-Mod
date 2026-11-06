@@ -895,18 +895,14 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
-                // Create callback for handover completion
+                // Create callbacks for handover submit/cancel
                 var drifterIdCapture = drifterId;
-                GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float> callback =
-                    (GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>)
-                    new Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>(
-                        (outcome, items, price) => OnDrifterHandoverClosed(drifterIdCapture, outcome, items, price));
-
-                // Success chance is 100% for pre-agreed drifter deals
-                GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float> successChance =
-                    (GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>)
-                    new Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>(
-                        (items, askingPrice) => 1.0f);
+                GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>> onSubmit =
+                    (GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>>)
+                    new Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>>(
+                        items => OnDrifterHandoverClosed(drifterIdCapture, false, items));
+                GameSystem.Action onCancel =
+                    (GameSystem.Action)new Action(() => OnDrifterHandoverClosed(drifterIdCapture, true, null));
 
                 // Open HandoverScreen in Contract mode (shows expected products/payment)
                 var handoverScreen = Singleton<HandoverScreen>.Instance;
@@ -919,7 +915,11 @@ namespace OverTheCounter.Logic
                 // Stop drifter movement while the handover screen is open
                 try { drifter.GameNpc.Movement?.Stop(); } catch { }
 
-                handoverScreen.Open(contract, customer, HandoverScreen.EMode.Contract, callback, successChance, false);
+                // Contract mode computes and displays its own success chance from the contract;
+                // it may show below 100% for a pre-agreed drifter deal. The DONE button stays
+                // enabled (requireFullChanceOfSuccess = false), and acceptance is decided in
+                // OnDrifterHandoverClosed via GetProductListMatch.
+                handoverScreen.Open_Contract(contract, onSubmit, onCancel, false);
                 OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Opened HandoverScreen for {drifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
             }
             catch (Exception ex)
@@ -981,11 +981,11 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Callback when HandoverScreen is closed for a drifter deal.
         /// </summary>
-        private void OnDrifterHandoverClosed(string drifterId, HandoverScreen.EHandoverOutcome outcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items, float askingPrice)
+        private void OnDrifterHandoverClosed(string drifterId, bool cancelled, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items)
         {
-            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover closed for {drifterId}: outcome={outcome}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover closed for {drifterId}: cancelled={cancelled}");
 
-            if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
+            if (cancelled)
             {
                 // Player cancelled - deal still pending, resume drifter movement
                 OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover cancelled for {drifterId}, deal still pending");
@@ -994,7 +994,7 @@ namespace OverTheCounter.Logic
                 return;
             }
 
-            // outcome == Finalize - deal completed
+            // Submitted - deal completed
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
                 return;
 
@@ -1060,7 +1060,8 @@ namespace OverTheCounter.Logic
                         OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] {drifterId} REJECTED deal (matchScore={matchScore:F2})");
 
                         drifter?.PlayDismissalSound();
-                        try { Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(true); } catch { }
+                        try { Singleton<HandoverScreen>.Instance?.ReturnCustomerItems(); }
+                        catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Drifter, $"{drifterId}: ReturnCustomerItems failed: {ex.Message}"); }
 
                         string[] rejectionLines = {
                             "This isn't what I asked for.",
@@ -1172,7 +1173,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(false);
+                Singleton<HandoverScreen>.Instance?.DestroyCustomerItems();
                 if (contract != null)
                 {
                     contract.SubmitPayment(bonusTotal);

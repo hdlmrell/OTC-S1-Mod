@@ -505,16 +505,15 @@ namespace OverTheCounter.NPCs
             try { _gameNpc?.Movement?.Stop(); }
             catch { }
 
-            // Create callback (IL2CPP delegate pattern from DrifterManager)
-            GameSystem.Action<HandoverScreen.EHandoverOutcome,
-                GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
-                float> callback =
-                (GameSystem.Action<HandoverScreen.EHandoverOutcome,
-                    GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
+            // Create callbacks (IL2CPP delegate pattern from DrifterManager)
+            GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
+                float> onSubmit =
+                (GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float>)
-                new Action<HandoverScreen.EHandoverOutcome,
-                    GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
-                    float>(OnHandoverClosed);
+                new Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
+                    float>((items, askingPrice) => OnHandoverClosed(false, items));
+            GameSystem.Action onCancel =
+                (GameSystem.Action)new Action(() => OnHandoverClosed(true, null));
 
             // Success chance always 100% (we validate ourselves in the callback)
             GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
@@ -524,9 +523,9 @@ namespace OverTheCounter.NPCs
                 new Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>,
                     float, float>((items, price) => 1.0f);
 
-            handoverScreen.Open(null, _customerComponent, HandoverScreen.EMode.Offer, callback, successChance, false);
+            handoverScreen.Open_Offer(_customerComponent, onSubmit, onCancel, successChance);
 
-            // End dialogue AFTER Open() — Open() adds an active UI element, so
+            // End dialogue AFTER Open_Offer() — opening adds an active UI element, so
             // DialogueCanvas.EndDialogue() sees activeUIElementCount > 0 and skips
             // the UnlockPlayer coroutine that would re-lock the mouse next frame.
             try { _gameNpc?.DialogueHandler?.EndDialogue(); }
@@ -539,13 +538,12 @@ namespace OverTheCounter.NPCs
         /// Callback when the HandoverScreen closes.
         /// </summary>
         private void OnHandoverClosed(
-            HandoverScreen.EHandoverOutcome outcome,
-            GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items,
-            float askingPrice)
+            bool cancelled,
+            GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items)
         {
-            OTCLog.Msg(OTCLog.Systems.NPC, $"Handover closed: outcome={outcome}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
+            OTCLog.Msg(OTCLog.Systems.NPC, $"Handover closed: cancelled={cancelled}, pendingDrug={_pendingDrugType}, pendingMinPrice=${_pendingMinPrice:F2}");
 
-            if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
+            if (cancelled)
             {
                 // Player cancelled — they can talk to Bella again
                 return;
@@ -570,8 +568,8 @@ namespace OverTheCounter.NPCs
             if (acceptedProduct != null)
             {
                 // Consume the items
-                try { handoverScreen?.ClearCustomerSlots(false); }
-                catch { }
+                try { handoverScreen?.DestroyCustomerItems(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"DestroyCustomerItems failed: {ex.Message}"); }
 
                 // Advance to next stage
                 AdvanceStage();
@@ -610,8 +608,8 @@ namespace OverTheCounter.NPCs
             else
             {
                 // Return items to player
-                try { handoverScreen?.ClearCustomerSlots(true); }
-                catch { }
+                try { handoverScreen?.ReturnCustomerItems(); }
+                catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ReturnCustomerItems failed: {ex.Message}"); }
 
                 // Bella rejects
                 try { _gameNpc?.SendWorldSpaceDialogue("That's not what I asked for. Try again.", 5f); }

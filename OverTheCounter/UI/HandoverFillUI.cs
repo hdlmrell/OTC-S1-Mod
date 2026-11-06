@@ -57,9 +57,10 @@ namespace OverTheCounter.UI
             if (_donePosSaved)
             {
                 var handover = Singleton<HandoverScreen>.Instance;
-                if (handover?.DoneButton != null)
+                var doneButton = handover?.GetDoneButton();
+                if (doneButton != null)
                 {
-                    var doneRect = handover.DoneButton.GetComponent<RectTransform>();
+                    var doneRect = doneButton.GetComponent<RectTransform>();
                     if (doneRect != null)
                         doneRect.anchoredPosition = _originalDonePos;
                 }
@@ -78,9 +79,10 @@ namespace OverTheCounter.UI
         private static void BuildUI()
         {
             var handover = Singleton<HandoverScreen>.Instance;
-            if (handover == null || handover.DoneButton == null) return;
+            var doneButton = handover?.GetDoneButton();
+            if (doneButton == null) return;
 
-            var doneRect = handover.DoneButton.GetComponent<RectTransform>();
+            var doneRect = doneButton.GetComponent<RectTransform>();
             if (doneRect == null || doneRect.parent == null) return;
 
             // Save the DONE button's original position once
@@ -145,7 +147,7 @@ namespace OverTheCounter.UI
                 var handover = Singleton<HandoverScreen>.Instance;
                 if (handover == null) { SetStatus("No screen", true); return; }
 
-                var contract = handover.CurrentContract;
+                var contract = handover.GetCurrentContract();
                 if (contract?.ProductList?.entries == null) { SetStatus("No contract", true); return; }
 
                 var customerSlots = handover.GetCustomerSlots();
@@ -566,8 +568,6 @@ namespace OverTheCounter.UI
 
                     var clone = sourceItem.GetCopy(toPlace);
                     cs.SetStoredItem(clone);
-
-                    handover.TrackItemAsPlayer(clone);
 
                     placed += toPlace;
                 }

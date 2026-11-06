@@ -62,10 +62,9 @@ namespace OverTheCounter
         private static readonly PropertyInfo _custTimeDealOffered = AccessTools.Property(typeof(Customer), "TimeSinceLastDealOffered");
         private static readonly PropertyInfo _custOfferedContract = AccessTools.Property(typeof(Customer), "OfferedContractInfo");
         private static readonly PropertyInfo _custPoI = AccessTools.Property(typeof(Customer), "potentialCustomerPoI");
-        private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "CustomerSlots");
-        private static readonly FieldInfo _hsOriginalItemLocations = AccessTools.Field(typeof(HandoverScreen), "OriginalItemLocations");
-        private static readonly System.Type _hsEItemSource = typeof(HandoverScreen).GetNestedType("EItemSource", BindingFlags.NonPublic);
-        private static readonly object _hsEItemSourcePlayer = _hsEItemSource != null ? System.Enum.Parse(_hsEItemSource, "Player") : null;
+        private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "_customerSlots");
+        private static readonly FieldInfo _hsDoneButton = AccessTools.Field(typeof(HandoverScreen), "_doneButton");
+        private static readonly FieldInfo _hsContractMode = AccessTools.Field(typeof(HandoverScreen), "_contractMode");
 #endif
 
         // --- VOEmitter.Database (private field on Mono, SetDatabase() is public) ---
@@ -245,30 +244,33 @@ namespace OverTheCounter
 #endif
         }
 
-        // --- HandoverScreen.CustomerSlots (private ItemSlot[]) ---
+        // --- HandoverScreen._customerSlots (private ItemSlot[]) ---
         public static ItemSlot[] GetCustomerSlots(this HandoverScreen hs)
         {
 #if IL2CPP
-            return hs.CustomerSlots;
+            return hs._customerSlots;
 #else
             return (ItemSlot[])_hsCustomerSlots?.GetValue(hs);
 #endif
         }
 
-        // --- HandoverScreen.OriginalItemLocations: register an item as coming from the player ---
-        // EItemSource is a private nested enum; IL2CPP can reference it directly, Mono uses reflection.
-        public static void TrackItemAsPlayer(this HandoverScreen hs, ItemInstance item)
+        // --- HandoverScreen._doneButton (private Button) ---
+        public static UnityEngine.UI.Button GetDoneButton(this HandoverScreen hs)
         {
 #if IL2CPP
-            hs.OriginalItemLocations[item] = HandoverScreen.EItemSource.Player;
+            return hs._doneButton;
 #else
-            var dict = _hsOriginalItemLocations?.GetValue(hs);
-            if (dict != null && _hsEItemSourcePlayer != null)
-            {
-                // Dictionary<ItemInstance, EItemSource>.Add via reflection
-                var addMethod = dict.GetType().GetMethod("set_Item");
-                addMethod?.Invoke(dict, new object[] { item, _hsEItemSourcePlayer });
-            }
+            return (UnityEngine.UI.Button)_hsDoneButton?.GetValue(hs);
+#endif
+        }
+
+        // --- HandoverScreen._contractMode.CurrentContract (contract being handed over in Contract mode) ---
+        public static Contract GetCurrentContract(this HandoverScreen hs)
+        {
+#if IL2CPP
+            return hs._contractMode?.CurrentContract;
+#else
+            return ((HandoverScreenContractMode)_hsContractMode?.GetValue(hs))?.CurrentContract;
 #endif
         }
     }

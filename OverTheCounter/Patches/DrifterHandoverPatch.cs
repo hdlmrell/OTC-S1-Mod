@@ -36,7 +36,6 @@ namespace OverTheCounter.Patches
         /// </summary>
         public static void Prefix(
             Customer __instance,
-            HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
             GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
@@ -44,8 +43,8 @@ namespace OverTheCounter.Patches
         {
             _pendingDrifterId.Value = null;
 
-            // Only process finalized handovers initiated by the player
-            if (outcome != HandoverScreen.EHandoverOutcome.Finalize || !handoverByPlayer)
+            // Only process handovers initiated by the player
+            if (!handoverByPlayer)
                 return;
 
             if (__instance?.NPC == null)
@@ -76,7 +75,6 @@ namespace OverTheCounter.Patches
         /// </summary>
         public static void Postfix(
             Customer __instance,
-            HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
             GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
@@ -105,33 +103,46 @@ namespace OverTheCounter.Patches
     }
 
     /// <summary>
-    /// Patches HandoverScreen.Open to clear stale CustomerSlots before every open
-    /// and show the Smart Fill overlay in Contract mode.
-    /// Close(Finalize) does NOT clear slots, so items from a previous handover
-    /// (e.g. a drifter deal) bleed into the next handover (e.g. a desperation deal).
+    /// Patches every HandoverScreen.Open_* mode to clear stale customer slots before opening.
+    /// Submit does NOT clear slots unless the callback does, so items left by a robbed
+    /// drifter deal would bleed into the next handover (e.g. a desperation deal).
     /// </summary>
-    [HarmonyPatch(typeof(HandoverScreen), nameof(HandoverScreen.Open))]
+    [HarmonyPatch]
     public static class HandoverScreenOpenPatch
     {
+        public static System.Collections.Generic.IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(HandoverScreen), nameof(HandoverScreen.Open_Contract));
+            yield return AccessTools.Method(typeof(HandoverScreen), nameof(HandoverScreen.Open_Sample));
+            yield return AccessTools.Method(typeof(HandoverScreen), nameof(HandoverScreen.Open_Offer));
+            yield return AccessTools.Method(typeof(HandoverScreen), nameof(HandoverScreen.Open_SpecialCustomer));
+        }
+
         public static void Prefix(HandoverScreen __instance)
         {
             try
             {
-                __instance.ClearCustomerSlots(false);
+                __instance.DestroyCustomerItems();
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Drifter, $"ClearCustomerSlots failed: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"DestroyCustomerItems failed: {ex.Message}");
             }
         }
+    }
 
-        public static void Postfix(HandoverScreen __instance, HandoverScreen.EMode mode)
+    /// <summary>
+    /// Shows the Smart Fill overlay when the HandoverScreen opens in Contract mode.
+    /// </summary>
+    [HarmonyPatch(typeof(HandoverScreen), nameof(HandoverScreen.Open_Contract))]
+    public static class HandoverScreenOpenContractPatch
+    {
+        public static void Postfix()
         {
             try
             {
-                OTCLog.Msg(OTCLog.Systems.Drifter, $"HandoverScreen Open fired, mode={mode}");
-                if (mode == HandoverScreen.EMode.Contract)
-                    HandoverFillUI.Show();
+                OTCLog.Msg(OTCLog.Systems.Drifter, "HandoverScreen Open_Contract fired");
+                HandoverFillUI.Show();
             }
             catch (Exception ex)
             {

@@ -10,12 +10,10 @@ using System.Reflection;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Quests;
-using Il2CppScheduleOne.UI.Handover;
 #else
 using ScheduleOne.Economy;
 using ScheduleOne.ItemFramework;
 using ScheduleOne.Quests;
-using ScheduleOne.UI.Handover;
 #endif
 
 namespace OverTheCounter.Patches
@@ -33,7 +31,6 @@ namespace OverTheCounter.Patches
         /// </summary>
         public static void Prefix(
             Customer __instance,
-            HandoverScreen.EHandoverOutcome outcome,
             Contract contract,
             GameSystem.Collections.Generic.List<ItemInstance> items,
             bool handoverByPlayer,
@@ -41,7 +38,7 @@ namespace OverTheCounter.Patches
         {
             _pendingBonus.Value = null;
 
-            if (!giveBonuses || outcome != HandoverScreen.EHandoverOutcome.Finalize)
+            if (!giveBonuses)
                 return;
 
             if (__instance == null || __instance.NPC == null || contract == null)
@@ -72,13 +69,8 @@ namespace OverTheCounter.Patches
         /// Postfix: Resolve the desperation event after a successful handover.
         /// This is the authoritative resolution path - the popup patch is only for UI display.
         /// </summary>
-        public static void Postfix(
-            Customer __instance,
-            HandoverScreen.EHandoverOutcome outcome)
+        public static void Postfix(Customer __instance)
         {
-            if (outcome != HandoverScreen.EHandoverOutcome.Finalize)
-                return;
-
             if (__instance?.NPC == null)
                 return;
 
