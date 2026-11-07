@@ -11,10 +11,12 @@ using System.IO;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Messaging;
+using NPCData = Il2CppScheduleOne.NPCs.Framework.NPCData;
 #else
 using ScheduleOne.NPCs;
 using ScheduleOne.Economy;
 using ScheduleOne.Messaging;
+using NPCData = ScheduleOne.NPCs.Framework.NPCData;
 #endif
 
 namespace OverTheCounter.Logic
@@ -41,7 +43,13 @@ namespace OverTheCounter.Logic
         /// <param name="rotation">Facing rotation.</param>
         /// <returns>The spawned NPC, or null on failure.</returns>
         public static NPC Spawn(string id, string firstName, string lastName, Vector3 position, Quaternion rotation) =>
-            NpcSpawner.SpawnCivilianNpc(id, $"Drifter_{id}", firstName, lastName, position, rotation);
+            NpcSpawner.SpawnCivilianNpc(id, $"Drifter_{id}", firstName, lastName, position, rotation, ConfigureDrifterData);
+
+        /// <summary>
+        /// Drifter NPC data: the conversation is created by <see cref="InitializeMessaging"/>.
+        /// </summary>
+        internal static void ConfigureDrifterData(NPCData data) =>
+            data.Messaging.CreateConversationOnStart = false;
 
         /// <summary>
         /// Despawns and destroys a drifter NPC.
@@ -118,10 +126,7 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
-                var conversation = new MSGConversation(npc, npc.FullName);
-                npc.SetMSGConversation(conversation);
-                conversation.SetIsKnown(true);
-                DrifterConversations[npc.ID] = conversation;
+                DrifterConversations[npc.ID] = NpcIdentity.CreateConversation(npc);
 
                 OTCLog.Msg(OTCLog.Systems.Drifter, $"Initialized messaging for {npc.ID}");
             }
@@ -171,7 +176,7 @@ namespace OverTheCounter.Logic
             if (npc == null) return;
             var icon = GetDrifterIcon();
             if (icon != null)
-                npc.MugshotSprite = icon;
+                NpcIdentity.SetMugshot(npc, icon);
         }
 
         private static Sprite GetDrifterIcon()

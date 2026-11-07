@@ -287,7 +287,8 @@ namespace OverTheCounter.Logic
                     slot.SetSlotOwner(inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>());
                 }
 
-                inventory.SlotCount = target;
+                if (GameNpc.NPCData != null)
+                    GameNpc.NPCData.Inventory.InventorySlotCount = target;
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplyInventoryCapacity: {current}→{target} slots");
@@ -538,14 +539,8 @@ namespace OverTheCounter.Logic
             }
 
             var (firstName, lastName) = ManagerSpawner.GetManagerName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
-
-            // Clear stale mugshot from the source prefab so MugshotUtility
-            // polling detects our freshly generated sprite, not the clone's.
-            existingNpc.SetMSGConversation(null);
-            existingNpc.MugshotSprite = null;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName, ManagerSpawner.ConfigureManagerData))
+                return null;
 
             var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
             ManagerSpawner.InitializeMessaging(existingNpc);
@@ -563,7 +558,7 @@ namespace OverTheCounter.Logic
             Active[id] = instance;
 
             // Set up inventory and dialogue choices
-            ManagerSpawner.SetupInventory(existingNpc);
+            ManagerSpawner.EnsureInventoryPresent(existingNpc);
             ManagerSpawner.SetupDialogueChoices(instance);
 
             // Apply upgrade tiers (config will be deserialized shortly after by ApplyManagerSlot)
@@ -745,7 +740,7 @@ namespace OverTheCounter.Logic
             {
                 if (sprite == null) return;
 
-                GameNpc.MugshotSprite = sprite;
+                NpcIdentity.SetMugshot(GameNpc, sprite);
 
                 // Locker — S1API creates sprites with Vector2.zero pivot (bottom-left),
                 // but the 3D SpriteRenderer on the clipboard needs centered pivot.

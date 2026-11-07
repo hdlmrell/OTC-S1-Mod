@@ -161,11 +161,10 @@ namespace OverTheCounter.Logic
                 return Active[id];
             }
 
-            // Set NPC identity fields (FishNet doesn't sync these)
+            // Set NPC identity (FishNet doesn't sync NPCData)
             var (firstName, lastName) = GetDrifterName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName, DrifterSpawner.ConfigureDrifterData))
+                return null;
 
             var instance = new DrifterInstance(id, type, hotspot, seed)
             {
@@ -185,11 +184,6 @@ namespace OverTheCounter.Logic
                     avatar.InitialAvatarSettings = avatar.CurrentSettings;
             }
             catch { }
-
-            // Clear any stale MSGConversation from PlayerSpawned() — it was created
-            // with the prefab's default empty name before Adopt set the real identity.
-            // InitializeMessaging will create a fresh one with the correct name.
-            try { existingNpc.SetMSGConversation(null); } catch { }
 
             // Ensure messaging, voice, and icon are set up
             DrifterSpawner.InitializeMessaging(existingNpc);
@@ -239,7 +233,7 @@ namespace OverTheCounter.Logic
             MugshotUtility.Generate(gameNpc, $"Drifter:{id}", sprite =>
             {
                 if (sprite == null || gameNpc == null) return;
-                gameNpc.MugshotSprite = sprite;
+                NpcIdentity.SetMugshot(gameNpc, sprite);
 
                 // Update the Messages app list entry icon — it was cached with the
                 // generic drifter icon when CreateConversationUI ran before the

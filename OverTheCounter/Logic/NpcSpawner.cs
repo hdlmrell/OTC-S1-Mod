@@ -8,17 +8,17 @@ using Il2CppFishNet.Object;
 using Il2CppFishNet.Managing;
 using Il2CppFishNet;
 using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Economy;
+using NPCData = Il2CppScheduleOne.NPCs.Framework.NPCData;
 #else
 using FishNet.Object;
 using FishNet.Managing;
 using FishNet;
 using ScheduleOne.NPCs;
-using ScheduleOne.DevUtilities;
 using ScheduleOne.AvatarFramework;
 using ScheduleOne.Economy;
+using NPCData = ScheduleOne.NPCs.Framework.NPCData;
 #endif
 
 namespace OverTheCounter.Logic
@@ -117,9 +117,11 @@ namespace OverTheCounter.Logic
         /// <param name="lastName">Last name for the NPC.</param>
         /// <param name="position">World position to spawn at.</param>
         /// <param name="rotation">Facing rotation.</param>
+        /// <param name="configureData">Optional edits to the NPC's data (see <see cref="NpcIdentity.Apply"/>).</param>
         /// <returns>The spawned NPC, or null on failure.</returns>
         public static NPC SpawnCivilianNpc(string id, string gameObjectName,
-            string firstName, string lastName, Vector3 position, Quaternion rotation)
+            string firstName, string lastName, Vector3 position, Quaternion rotation,
+            Action<NPCData> configureData = null)
         {
             try
             {
@@ -141,11 +143,6 @@ namespace OverTheCounter.Logic
                 clone.gameObject.name = gameObjectName;
                 clone.gameObject.SetActive(false);
 
-                // Parent to NPC container
-                var npcManager = NetworkSingleton<NPCManager>.Instance;
-                if (npcManager?.NPCContainer != null)
-                    clone.gameObject.transform.SetParent(npcManager.NPCContainer, false);
-
                 // Get NPC component
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
@@ -154,11 +151,6 @@ namespace OverTheCounter.Logic
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return null;
                 }
-
-                // Configure identity
-                npc.ID = id;
-                npc.FirstName = firstName;
-                npc.LastName = lastName;
 
                 // Remove from registry if auto-added (we'll add manually)
                 try
@@ -188,6 +180,14 @@ namespace OverTheCounter.Logic
 
                 // Activate (triggers Awake + Start on all components)
                 clone.gameObject.SetActive(true);
+
+                // Identity lives in NPCData; apply it once Awake has run
+                if (!NpcIdentity.Apply(npc, id, firstName, lastName, configureData))
+                {
+                    NPCManager.NPCRegistry?.Remove(npc);
+                    UnityEngine.Object.Destroy(clone.gameObject);
+                    return null;
+                }
 
                 // Isolate Customer component from vanilla deal system
                 IsolateCustomerComponent(npc);
@@ -357,7 +357,7 @@ namespace OverTheCounter.Logic
             {
                 if (npc.gameObject.activeSelf)
                 {
-                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Cannot add Customer to active GameObject for {npc.ID}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Cannot add Customer to active GameObject for {npc.gameObject.name}");
                     return null;
                 }
 
@@ -379,7 +379,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponent failed for {npc?.gameObject?.name}: {ex.Message}");
                 return null;
             }
         }

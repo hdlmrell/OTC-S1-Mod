@@ -382,9 +382,8 @@ namespace OverTheCounter.Logic
                 return Active[id];
 
             var (firstName, lastName) = DrifterInstance.GetDrifterName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName))
+                return null;
 
             NpcSpawner.GenerateRandomAppearance(existingNpc, seed);
             SetVoiceDatabase(existingNpc, seed);

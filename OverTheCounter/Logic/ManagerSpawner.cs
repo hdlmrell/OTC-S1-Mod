@@ -15,9 +15,9 @@ using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Messaging;
-using Il2CppScheduleOne.Interaction;
 using Il2CppScheduleOne.Property;
 using Il2CppScheduleOne.UI;
+using NPCData = Il2CppScheduleOne.NPCs.Framework.NPCData;
 #else
 using FishNet.Object;
 using FishNet;
@@ -26,9 +26,9 @@ using ScheduleOne.Dialogue;
 using ScheduleOne.NPCs;
 using ScheduleOne.AvatarFramework;
 using ScheduleOne.Messaging;
-using ScheduleOne.Interaction;
 using ScheduleOne.Property;
 using ScheduleOne.UI;
+using NPCData = ScheduleOne.NPCs.Framework.NPCData;
 #endif
 
 namespace OverTheCounter.Logic
@@ -221,13 +221,6 @@ namespace OverTheCounter.Logic
                 clone.gameObject.name = $"Manager_{id}";
                 clone.gameObject.SetActive(false);
 
-                // Parent to NPC container
-                var npcManager = NetworkSingleton<NPCManager>.Instance;
-                if (npcManager?.NPCContainer != null)
-                {
-                    clone.gameObject.transform.SetParent(npcManager.NPCContainer, false);
-                }
-
                 // Get NPC component
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
@@ -236,17 +229,6 @@ namespace OverTheCounter.Logic
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return (null, null);
                 }
-
-                // Clear stale state inherited from the clone source so
-                // InitializeMessaging creates a fresh conversation and the
-                // mugshot callback writes to the correct NPC.
-                npc.SetMSGConversation(null);
-                npc.MugshotSprite = null;
-
-                // Configure identity
-                npc.ID = id;
-                npc.FirstName = firstName;
-                npc.LastName = lastName;
 
                 // Remove from registry if auto-added
                 try
@@ -266,11 +248,18 @@ namespace OverTheCounter.Logic
                 clone.gameObject.transform.position = spawnPos;
                 clone.gameObject.transform.rotation = rotation;
 
-                // Add persistent inventory (while inactive, Awake deferred to SetActive)
-                SetupInventory(npc);
+                EnsureInventoryPresent(npc);
 
                 // Activate (triggers Awake on all components)
                 clone.gameObject.SetActive(true);
+
+                // Identity lives in NPCData; apply it once Awake has run
+                if (!NpcIdentity.Apply(npc, id, firstName, lastName, ConfigureManagerData))
+                {
+                    NPCManager.NPCRegistry?.Remove(npc);
+                    UnityEngine.Object.Destroy(clone.gameObject);
+                    return (null, null);
+                }
 
                 // Register with game
                 try
@@ -483,9 +472,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                var conversation = new MSGConversation(npc, npc.FullName);
-                npc.SetMSGConversation(conversation);
-                conversation.SetIsKnown(true);
+                NpcIdentity.CreateConversation(npc);
                 if (Config.ManagerVerboseLogging.Value)
                     OTCLog.Msg(OTCLog.Systems.Manager, $"Initialized messaging for {npc.ID}");
             }
@@ -1037,7 +1024,7 @@ namespace OverTheCounter.Logic
             _isReopening = true;
             try
             {
-                if (dc != null && dc.GenericDialogue != null)
+                if (dc != null)
                     dc.StartGenericDialogue();
             }
             catch (Exception ex)
@@ -1069,20 +1056,21 @@ namespace OverTheCounter.Logic
 
                 string title = mgr.GameNpc.FullName + "'s Inventory";
                 var storageMenu = Singleton<StorageMenu>.Instance;
-                UnityAction closeAction = null;
-                closeAction = (UnityAction)(() =>
+                var onClosed = (GameSystem.Action)new Action(() =>
                 {
                     mgr.IsPlayerInteracting = false;
                     // Release the server-side dialogue lock so the host resumes the manager
                     try { mgr.GameNpc?.Behaviour?.GenericDialogueBehaviour?.Disable_Server(); }
-                    catch { }
-                    storageMenu.onClosed.RemoveListener(closeAction);
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Manager, $"{mgr.Id}: releasing dialogue lock failed: {ex.Message}");
+                    }
                 });
-                storageMenu.onClosed.AddListener(closeAction);
                 storageMenu.Open(
                     inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>(),
                     title,
-                    "");
+                    "",
+                    onClosed);
             }
             catch (Exception ex)
             {
@@ -1097,51 +1085,44 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Adds a persistent NPCInventory component to the manager NPC.
-        /// Disables nightly clearing and pickpocketing. Called during spawn (inactive GO)
-        /// and adopt (temporarily deactivates GO to avoid Awake crash).
+        /// Checks the manager NPC has an NPCInventory. Inventory behaviour (slot count, no nightly
+        /// clearing, no random loot, no pickpocketing) comes from <see cref="ConfigureManagerData"/>.
+        /// The component can't be added at runtime: its Awake needs a serialized interactable.
         /// </summary>
-        public static void SetupInventory(NPC npc)
+        public static void EnsureInventoryPresent(NPC npc)
         {
             try
             {
                 var existing = npc.GetComponent<ScheduleOne.NPCs.NPCInventory>();
-                if (existing != null)
+                if (existing == null)
                 {
-                    existing.ClearInventoryEachNight = false;
-                    existing.RandomCash = false;
-                    existing.RandomItems = false;
-                    existing.CanBePickpocketed = false;
-                    existing.SlotCount = 5;
-
-                    if (Config.ManagerVerboseLogging.Value)
-                        OTCLog.Msg(OTCLog.Systems.Manager, $"Inventory already exists on {npc.ID}, configured (slots={existing.ItemSlots?.Count ?? existing.SlotCount})");
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"{npc.gameObject.name} has no NPCInventory; manager inventory unavailable");
                     return;
                 }
 
-                bool wasActive = npc.gameObject.activeSelf;
-                if (wasActive) npc.gameObject.SetActive(false);
-
-                var inventory = npc.gameObject.AddComponent<ScheduleOne.NPCs.NPCInventory>();
-                inventory.SlotCount = 5;
-                inventory.ClearInventoryEachNight = false;
-                inventory.RandomCash = false;
-                inventory.RandomItems = false;
-                inventory.CanBePickpocketed = false;
-
-                var intObj = npc.GetComponentInChildren<InteractableObject>(true);
-                if (intObj != null)
-                    inventory.PickpocketIntObj = intObj;
-
-                if (wasActive) npc.gameObject.SetActive(true);
-
                 if (Config.ManagerVerboseLogging.Value)
-                    OTCLog.Msg(OTCLog.Systems.Manager, $"Added inventory to {npc.ID} (slots={inventory.SlotCount})");
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"Inventory present on {npc.gameObject.name} (slots={existing.ItemSlots?.Count ?? 0})");
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Manager, $"SetupInventory failed for {npc.ID}: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Manager, $"Inventory check failed for {npc.gameObject.name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Manager NPC data: mugshot cleared until OTC generates one, conversation created by
+        /// <see cref="InitializeMessaging"/>, and a persistent 5-slot inventory (upgrades add more)
+        /// that isn't cleared nightly, gets no random cash/items, and can't be pickpocketed.
+        /// </summary>
+        internal static void ConfigureManagerData(NPCData data)
+        {
+            data.Appearance.Mugshot = null;
+            data.Messaging.CreateConversationOnStart = false;
+            data.Inventory.InventorySlotCount = 5;
+            data.Inventory.ClearInventoryOnNewDay = false;
+            data.Inventory.RandomizeCash = false;
+            data.Inventory.RandomizeInventory = false;
+            data.Inventory.CanBePickpocketed = false;
         }
 
         /// <summary>
