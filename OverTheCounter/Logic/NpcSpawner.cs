@@ -593,11 +593,10 @@ namespace OverTheCounter.Logic
 
             var state = UnityEngine.Random.state;
             UnityEngine.Random.InitState(seed);
+            AvatarSettings settings = null;
             try
             {
-                var settings = npc.Avatar.CurrentSettings;
-                if (settings == null)
-                    settings = ScriptableObject.CreateInstance<AvatarSettings>();
+                settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 // Ensure IL2CPP lists are initialized
                 if (settings.FaceLayerSettings == null)
@@ -696,7 +695,7 @@ namespace OverTheCounter.Logic
                     settings.AccessorySettings.Add(shoeSetting);
                 }
 
-                npc.Avatar.LoadAvatarSettings(settings);
+                AvatarBridge.Apply(npc, settings);
             }
             catch (Exception ex)
             {
@@ -705,6 +704,8 @@ namespace OverTheCounter.Logic
             finally
             {
                 UnityEngine.Random.state = state;
+                if (settings != null)
+                    UnityEngine.Object.Destroy(settings);
             }
         }
 

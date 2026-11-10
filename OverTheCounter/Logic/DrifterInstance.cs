@@ -172,18 +172,9 @@ namespace OverTheCounter.Logic
                 IsAdopted = true
             };
 
-            var avatar = existingNpc.Avatar;
-
-            // Apply appearance (FishNet doesn't sync avatar settings)
+            // Apply appearance (FishNet doesn't sync it). AvatarBridge also stores it in the NPC's
+            // data, so a re-initialization keeps the drifter's look
             DrifterSpawner.GenerateRandomAppearance(existingNpc, seed);
-
-            // Set InitialAvatarSettings so Avatar re-loads our settings if it re-initializes
-            try
-            {
-                if (avatar != null && avatar.CurrentSettings != null)
-                    avatar.InitialAvatarSettings = avatar.CurrentSettings;
-            }
-            catch { }
 
             // Ensure messaging, voice, and icon are set up
             DrifterSpawner.InitializeMessaging(existingNpc);
@@ -227,8 +218,7 @@ namespace OverTheCounter.Logic
 
         private static void EnqueueMugshot(NPC gameNpc, string id)
         {
-            var settings = gameNpc.Avatar?.CurrentSettings;
-            if (settings == null) return;
+            if (gameNpc.Avatar?.Appearance?.AppliedNakedAppearance == null) return;
 
             MugshotUtility.Generate(gameNpc, $"Drifter:{id}", sprite =>
             {
@@ -249,8 +239,11 @@ namespace OverTheCounter.Logic
                             iconImage.sprite = sprite;
                     }
                 }
-                catch { }
-            }, UnityEngine.Object.Instantiate(settings));
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Messages icon refresh failed for {id}: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>

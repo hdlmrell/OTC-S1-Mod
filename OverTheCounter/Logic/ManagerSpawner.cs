@@ -289,15 +289,16 @@ namespace OverTheCounter.Logic
                 return null;
             }
 
+            var state = UnityEngine.Random.state;
+            AvatarSettings settings = null;
             try
             {
-                var state = UnityEngine.Random.state;
                 UnityEngine.Random.InitState(seed);
 
                 // Always create a fresh AvatarSettings. FishNet-replicated NPCs may
                 // share the same ScriptableObject reference from the prefab clone. Modifying
                 // it in-place would corrupt all NPCs that share the reference.
-                var settings = ScriptableObject.CreateInstance<AvatarSettings>();
+                settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 if (settings.FaceLayerSettings == null)
                     settings.FaceLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
@@ -378,8 +379,7 @@ namespace OverTheCounter.Logic
                 shoeSetting.color = new Color(0.12f, 0.10f, 0.08f); // Dark leather
                 settings.AccessorySettings.Add(shoeSetting);
 
-                npc.Avatar.LoadAvatarSettings(settings);
-                UnityEngine.Random.state = state;
+                AvatarBridge.Apply(npc, settings);
 
                 if (Config.ManagerVerboseLogging.Value)
                     OTCLog.Msg(OTCLog.Systems.Manager, $"Applied appearance for {npc.ID}");
@@ -389,7 +389,14 @@ namespace OverTheCounter.Logic
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyAppearance failed for {npc.ID}: {ex.Message}");
+                if (settings != null)
+                    UnityEngine.Object.Destroy(settings);
                 return null;
+            }
+            finally
+            {
+                // The seed must never leak into the game's global RNG
+                UnityEngine.Random.state = state;
             }
         }
 
