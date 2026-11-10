@@ -127,7 +127,7 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Spawns a new Manager NPC at the specified position.
         /// </summary>
-        public static (NPC npc, AvatarSettings settings) Spawn(string id, int seed, Vector3 position, Quaternion rotation)
+        public static NPC Spawn(string id, int seed, Vector3 position, Quaternion rotation)
         {
             try
             {
@@ -135,7 +135,7 @@ namespace OverTheCounter.Logic
                 if (basePrefab == null)
                 {
                     OTCLog.Error(OTCLog.Systems.Manager, $"Cannot spawn {id}: no base prefab");
-                    return (null, null);
+                    return null;
                 }
 
                 var (firstName, lastName) = GetManagerName(seed);
@@ -145,7 +145,7 @@ namespace OverTheCounter.Logic
                 if (clone == null || clone.gameObject == null)
                 {
                     OTCLog.Error(OTCLog.Systems.Manager, $"Failed to instantiate prefab for {id}");
-                    return (null, null);
+                    return null;
                 }
 
                 clone.gameObject.name = $"Manager_{id}";
@@ -157,7 +157,7 @@ namespace OverTheCounter.Logic
                 {
                     OTCLog.Error(OTCLog.Systems.Manager, $"Cloned object missing NPC component for {id}");
                     UnityEngine.Object.Destroy(clone.gameObject);
-                    return (null, null);
+                    return null;
                 }
 
                 // Remove from registry if auto-added
@@ -188,7 +188,7 @@ namespace OverTheCounter.Logic
                 {
                     NPCManager.NPCRegistry?.Remove(npc);
                     UnityEngine.Object.Destroy(clone.gameObject);
-                    return (null, null);
+                    return null;
                 }
 
                 // Register with game
@@ -219,7 +219,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // Apply appearance and capture settings for mugshot
-                var avatarSettings = ApplyAppearance(npc, seed);
+                ApplyAppearance(npc, seed);
 
                 // Initialize messaging and voice
                 InitializeMessaging(npc);
@@ -249,12 +249,12 @@ namespace OverTheCounter.Logic
                 }
 
                 OTCLog.Msg(OTCLog.Systems.Manager, $"Spawned {id} ({firstName} {lastName}) at {spawnPos}");
-                return (npc, avatarSettings);
+                return npc;
             }
             catch (Exception ex)
             {
                 OTCLog.Error(OTCLog.Systems.Manager, $"Spawn failed for {id}: {ex.Message}\n{ex.StackTrace}");
-                return (null, null);
+                return null;
             }
         }
 
@@ -279,14 +279,13 @@ namespace OverTheCounter.Logic
         /// Applies deterministic Handler-style appearance to a Manager NPC.
         /// Uses button-up shirt, dark slacks, and dress shoes for a professional look.
         /// Biometrics (skin, hair, eyes) are randomized from seed for variety.
-        /// Returns the generated AvatarSettings for use in mugshot generation.
         /// </summary>
-        public static AvatarSettings ApplyAppearance(NPC npc, int seed)
+        public static void ApplyAppearance(NPC npc, int seed)
         {
             if (npc?.Avatar == null)
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, "Cannot apply appearance: NPC or Avatar is null");
-                return null;
+                return;
             }
 
             var state = UnityEngine.Random.state;
@@ -383,20 +382,17 @@ namespace OverTheCounter.Logic
 
                 if (Config.ManagerVerboseLogging.Value)
                     OTCLog.Msg(OTCLog.Systems.Manager, $"Applied appearance for {npc.ID}");
-
-                return settings;
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, $"ApplyAppearance failed for {npc.ID}: {ex.Message}");
-                if (settings != null)
-                    UnityEngine.Object.Destroy(settings);
-                return null;
             }
             finally
             {
                 // The seed must never leak into the game's global RNG
                 UnityEngine.Random.state = state;
+                if (settings != null)
+                    UnityEngine.Object.Destroy(settings);
             }
         }
 

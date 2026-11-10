@@ -484,7 +484,7 @@ namespace OverTheCounter.Logic
                 OTCLog.Warning(OTCLog.Systems.Manager, $"No ManagerLocation for {business.PropertyCode}, using business spawn point");
             }
 
-            var (npc, avatarSettings) = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
+            var npc = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
             if (npc == null)
             {
                 OTCLog.Error(OTCLog.Systems.Manager, $"Failed to spawn manager NPC for {id}");
@@ -507,8 +507,7 @@ namespace OverTheCounter.Logic
             // Set up dialogue choices (fire/transfer)
             ManagerSpawner.SetupDialogueChoices(instance);
 
-            // Generate mugshot using the exact settings from ApplyAppearance
-            instance.GenerateMugshot(avatarSettings);
+            instance.GenerateMugshot();
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -542,7 +541,7 @@ namespace OverTheCounter.Logic
             if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName, ManagerSpawner.ConfigureManagerData))
                 return null;
 
-            var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
+            ManagerSpawner.ApplyAppearance(existingNpc, seed);
             ManagerSpawner.InitializeMessaging(existingNpc);
             ManagerSpawner.EnsureVoiceDatabase(existingNpc);
 
@@ -565,8 +564,7 @@ namespace OverTheCounter.Logic
             instance.ApplySpeedUpgrade();
             instance.ApplyInventoryCapacity();
 
-            // Generate mugshot using the exact settings from ApplyAppearance
-            instance.GenerateMugshot(avatarSettings);
+            instance.GenerateMugshot();
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -727,15 +725,14 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Generates a mugshot from the NPC's avatar settings via MugshotUtility.
-        /// If explicit settings are provided, those are used directly for the capture
-        /// (ensures host/client determinism). Otherwise falls back to Avatar.CurrentSettings.
+        /// Generates a mugshot of the look stored in the NPC's data (seeded, so host and clients
+        /// render the same face) via MugshotUtility.
         /// Updates NPC.MugshotSprite, the locker display, phone messaging icon, and map POI.
         /// </summary>
-        public void GenerateMugshot(ScheduleOne.AvatarFramework.AvatarSettings explicitSettings = null)
+        public void GenerateMugshot()
         {
             if (Config.ManagerVerboseLogging.Value)
-                Log($"GenerateMugshot() called (explicitSettings={explicitSettings != null})");
+                Log("GenerateMugshot() called");
             MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
             {
                 if (sprite == null) return;
@@ -762,7 +759,7 @@ namespace OverTheCounter.Logic
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log("mugshot applied to NPC + messaging");
-            }, explicitSettings);
+            });
         }
 
         /// <summary>
