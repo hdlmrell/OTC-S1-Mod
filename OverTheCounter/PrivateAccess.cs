@@ -52,6 +52,7 @@ namespace OverTheCounter
         // Cached FieldInfo / PropertyInfo for Mono reflection
         private static readonly FieldInfo _voeDatabase = AccessTools.Field(typeof(VOEmitter), "Database");
         private static readonly FieldInfo _customerData = AccessTools.Field(typeof(Customer), "customerData");
+        private static readonly FieldInfo _custAffinity = AccessTools.Field(typeof(Customer), "currentAffinityData");
         private static readonly FieldInfo _questTitle = AccessTools.Field(typeof(Quest), "title");
         private static readonly FieldInfo _dcHandler = AccessTools.Field(typeof(DialogueController), "handler");
         private static readonly FieldInfo _questEntryUI = AccessTools.Field(typeof(QuestEntry), "entryUI");
@@ -97,6 +98,16 @@ namespace OverTheCounter
             customer.customerData = data;
 #else
             _customerData?.SetValue(customer, data);
+#endif
+        }
+
+        // --- Customer.currentAffinityData (private field, copied from CustomerData in Awake) ---
+        public static CustomerAffinityData GetCurrentAffinityData(this Customer customer)
+        {
+#if IL2CPP
+            return customer.currentAffinityData;
+#else
+            return (CustomerAffinityData)_custAffinity?.GetValue(customer);
 #endif
         }
 

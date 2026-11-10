@@ -308,12 +308,12 @@ namespace OverTheCounter.NPCs
 
                 // Only summonable while quest is active (stages 1-4)
                 int stage = BellaSaveData.Instance?.Stage ?? 0;
-                _gameNpc.CanBeSummoned = stage >= 1 && stage < 5;
+                SetCanBeSummoned(stage >= 1 && stage < 5);
 
                 // Verify injection
                 int occupantCount = nearest.OccupantCount;
                 OTCLog.Msg(OTCLog.Systems.NPC, $"Bella injected into building '{nearest.BuildingName}' (distance: {nearestDist:F1}m, " +
-                               $"occupants={occupantCount}, CanBeSummoned={_gameNpc.CanBeSummoned}, " +
+                               $"occupants={occupantCount}, CanBeSummoned={_gameNpc.HasNPCData && _gameNpc.NPCData.Interaction.CanBeSummoned}, " +
                                $"CurrentBuilding={((_gameNpc.CurrentBuilding != null) ? "set" : "null")}, " +
                                $"isVisible={_gameNpc.isVisible})");
             }
@@ -328,8 +328,21 @@ namespace OverTheCounter.NPCs
         /// </summary>
         public void EnableSummoning()
         {
-            if (_gameNpc != null)
-                _gameNpc.CanBeSummoned = true;
+            SetCanBeSummoned(true);
+        }
+
+        /// <summary>
+        /// The summon flag lives in the NPC's runtime data (a per-NPC copy).
+        /// </summary>
+        private void SetCanBeSummoned(bool canBeSummoned)
+        {
+            if (_gameNpc == null || !_gameNpc.HasNPCData)
+            {
+                OTCLog.Warning(OTCLog.Systems.NPC, "Bella has no NPC data, summon flag not set");
+                return;
+            }
+
+            _gameNpc.NPCData.Interaction.CanBeSummoned = canBeSummoned;
         }
 
         /// <summary>
@@ -501,6 +514,8 @@ namespace OverTheCounter.NPCs
                 return;
             }
 
+            NpcSpawner.SetRequestedDrug(_customerComponent, drugType);
+
             // Stop Bella's movement while handover is open
             try { _gameNpc?.Movement?.Stop(); }
             catch { }
@@ -577,7 +592,7 @@ namespace OverTheCounter.NPCs
                 // Bella consumes the exact product (plays animation + applies effects)
                 try
                 {
-                    _gameNpc?.Behaviour?.ConsumeProduct(acceptedProduct);
+                    _gameNpc?.Behaviour?.ConsumeProduct_Server(acceptedProduct, false);
                     OTCLog.Msg(OTCLog.Systems.NPC, $"Bella consuming product: {acceptedProduct.ID}");
                 }
                 catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.NPC, $"ConsumeProduct failed: {ex.Message}"); }

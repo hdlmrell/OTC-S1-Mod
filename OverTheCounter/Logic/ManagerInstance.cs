@@ -1262,7 +1262,7 @@ namespace OverTheCounter.Logic
                 var conv = GameNpc?.GetMSGConversation();
                 if (conv == null) return;
 
-                conv.messageHistory?.Clear();
+                conv.ResetConversation();
 
                 // Only hide the phone entry if the conversation has one
                 // (our cloned NPCs skip CreateConversationUI so entry is null)

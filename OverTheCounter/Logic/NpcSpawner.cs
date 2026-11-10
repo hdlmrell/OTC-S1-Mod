@@ -486,6 +486,26 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
+        /// Makes <paramref name="drug"/> the customer's only, and so favourite, drug type. The
+        /// handover screen's customer panel shows the favourite and throws when there is none,
+        /// so call this before opening it for a synthetic customer.
+        /// </summary>
+        /// <param name="customer">A synthetic customer from <see cref="AddCustomerComponentToActive"/>.</param>
+        /// <param name="drug">The drug the NPC is asking for.</param>
+        public static void SetRequestedDrug(Customer customer, ScheduleOne.Product.EDrugType drug)
+        {
+            var affinities = customer?.GetCurrentAffinityData()?.ProductAffinities;
+            if (affinities == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{customer?.gameObject.name ?? "null customer"}: no affinity data, requested drug not set");
+                return;
+            }
+
+            affinities.Clear();
+            affinities.Add(new ProductTypeAffinity { DrugType = drug, Affinity = 1f });
+        }
+
+        /// <summary>
         /// Gets the Customer component from an NPC.
         /// </summary>
         public static Customer GetCustomerComponent(NPC npc) =>

@@ -880,6 +880,12 @@ namespace OverTheCounter.Logic
                     customer.SetCustData(perDrifterData);
                 }
 
+                var requestedProduct = DrifterInstance.FindProductDefinition(evt.ProductId);
+                if (requestedProduct != null)
+                    NpcSpawner.SetRequestedDrug(customer, requestedProduct.DrugType);
+                else
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{drifterId}: product '{evt.ProductId}' not found, handover panel may not open");
+
                 var productEntry = new ScheduleOne.Product.ProductList.Entry(
                     evt.ProductId,
                     expectedQuality,
@@ -2446,7 +2452,8 @@ namespace OverTheCounter.Logic
             var conversations = DrifterSpawner.DrifterConversations;
             if (conversations.Count == 0) return;
 
-            var stale = conversations.Where(kvp => kvp.Value == null || kvp.Value.sender == null).Select(kvp => kvp.Key).ToList();
+            // Keyed by NPC ID; the drifter is gone once it leaves the game's NPC registry
+            var stale = conversations.Where(kvp => kvp.Value == null || NPCManager.GetNPC(kvp.Key) == null).Select(kvp => kvp.Key).ToList();
             foreach (var id in stale)
                 HideDrifterConversation(id);
         }

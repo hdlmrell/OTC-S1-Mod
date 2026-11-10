@@ -2,7 +2,6 @@
 using OverTheCounter.Utilities;
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Events;
 using System;
 using System.Collections.Generic;
 
@@ -64,6 +63,9 @@ namespace OverTheCounter.Logic
         // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
         private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
         private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _spawnCallback;
+
+        // Cached so the same instance can be unsubscribed (IL2CPP wraps a new delegate per conversion)
+        private GameSystem.Action<ProductItemInstance> _consumeDoneCallback;
 
         // Stuck detection: if NPC hasn't moved significantly in StuckCheckInterval, warp to destination
         private Vector3? _lastStuckCheckPos;
@@ -570,41 +572,35 @@ namespace OverTheCounter.Logic
 
                 IsConsuming = true;
 
-                // Walk to spawn when consume animation finishes
+                // Walk to spawn when the consume animation finishes. The server plays it on every
+                // machine through an observers RPC, so every machine hears the event
                 try
                 {
-                    if (consumeBehaviour.onConsumeDone == null)
-                        consumeBehaviour.onConsumeDone = new UnityEvent();
-
-                    consumeBehaviour.onConsumeDone.AddListener((UnityAction)(() =>
-                    {
-                        IsConsuming = false;
-                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: consume animation finished, walking to spawn");
-                        WalkToSpawn();
-                    }));
+                    _consumeDoneCallback ??= (Action<ProductItemInstance>)OnConsumeDone;
+#if IL2CPP
+                    consumeBehaviour.remove_OnProductConsumed(_consumeDoneCallback);
+                    consumeBehaviour.add_OnProductConsumed(_consumeDoneCallback);
+#else
+                    consumeBehaviour.OnProductConsumed -= _consumeDoneCallback;
+                    consumeBehaviour.OnProductConsumed += _consumeDoneCallback;
+#endif
                 }
                 catch (Exception ex)
                 {
-                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to hook onConsumeDone: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to subscribe to OnProductConsumed: {ex.Message}");
                 }
 
-                // Send product and activate the behaviour
-                try
+                // Only the host starts it; a client request would make the server consume twice
+                if (NetworkHelper.IsHost)
                 {
-                    consumeBehaviour.SendProduct(productInstance, false);
-                    consumeBehaviour.Activate();
-                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: SendProduct/Activate failed ({ex.Message}), trying Activate only");
                     try
                     {
-                        consumeBehaviour.Activate();
+                        GameNpc.Behaviour.ConsumeProduct_Server(productInstance, false);
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Activate also failed, falling back to WalkToSpawn");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: ConsumeProduct_Server failed ({ex.Message}), falling back to WalkToSpawn");
                         IsConsuming = false;
                         WalkToSpawn();
                         return;
@@ -622,6 +618,31 @@ namespace OverTheCounter.Logic
             }
         }
 
+        private void OnConsumeDone(ProductItemInstance product)
+        {
+            try
+            {
+#if IL2CPP
+                GameNpc?.Behaviour?.ConsumeProductBehaviour?.remove_OnProductConsumed(_consumeDoneCallback);
+#else
+                var consumeBehaviour = GameNpc?.Behaviour?.ConsumeProductBehaviour;
+                if (consumeBehaviour != null)
+                    consumeBehaviour.OnProductConsumed -= _consumeDoneCallback;
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to unsubscribe from OnProductConsumed: {ex.Message}");
+            }
+
+            // The safety timeout may already have sent it home
+            if (!IsConsuming) return;
+
+            IsConsuming = false;
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: consume animation finished, walking to spawn");
+            WalkToSpawn();
+        }
+
         private IEnumerator ConsumeTimeoutCoroutine()
         {
             yield return new WaitForSeconds(10f);
@@ -634,7 +655,7 @@ namespace OverTheCounter.Logic
             }
         }
 
-        private static ProductDefinition FindProductDefinition(string productId)
+        internal static ProductDefinition FindProductDefinition(string productId)
         {
             try
             {
@@ -722,8 +743,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Sets the default weapon for the drifter's CombatBehaviour.
         /// Uses the prefab directly (no Instantiate) — CombatBehaviour only reads
-        /// DefaultWeapon.AssetPath to call SetWeapon() when combat starts.
-        /// Null weaponPath = fists (clears DefaultWeapon).
+        /// the default weapon's AssetPath to call SetWeapon() when combat starts.
+        /// Null weaponPath = fists (clears the default weapon).
         /// </summary>
         public void EquipWeapon(string weaponPath)
         {
@@ -738,13 +759,13 @@ namespace OverTheCounter.Logic
 
                 if (string.IsNullOrEmpty(weaponPath))
                 {
-                    combatBehaviour.DefaultWeapon = null;
+                    combatBehaviour.SetDefaultWeapon(null);
                     return;
                 }
 
                 // Load the prefab and read its AvatarWeapon component directly.
                 // Do NOT Instantiate — that creates an orphan clone whose Awake can
-                // corrupt state. CombatBehaviour only reads DefaultWeapon.AssetPath.
+                // corrupt state. CombatBehaviour only reads the default weapon's AssetPath.
                 var prefab = Resources.Load(weaponPath);
                 var prefabGo = prefab?.TryCast<GameObject>();
                 if (prefabGo == null)
@@ -761,7 +782,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // IL2CPP prefabs may have empty AssetPath (serialized field not loaded).
-                // CombatBehaviour.StartCombat reads DefaultWeapon.AssetPath to call SetWeapon(),
+                // CombatBehaviour.StartCombat reads the default weapon's AssetPath to call SetWeapon(),
                 // so an empty path means the weapon silently fails to equip.
                 var assetPath = avatarWeapon.AssetPath;
                 if (string.IsNullOrEmpty(assetPath))
@@ -770,7 +791,7 @@ namespace OverTheCounter.Logic
                     OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: fixed empty AssetPath → '{weaponPath}'");
                 }
 
-                combatBehaviour.DefaultWeapon = avatarWeapon;
+                combatBehaviour.SetDefaultWeapon(avatarWeapon);
             }
             catch (Exception ex)
             {

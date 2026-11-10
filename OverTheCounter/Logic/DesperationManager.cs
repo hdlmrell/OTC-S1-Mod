@@ -577,9 +577,9 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Sends a text message from an NPC using the IL2CPP NPC directly.
-        /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so we
-        /// call the IL2CPP SendTextMessage method instead.
+        /// Sends a text message from a game NPC directly.
+        /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so this
+        /// goes through <see cref="NpcMessaging.SendTextMessage"/> instead.
         /// </summary>
         private void SendNPCTextMessage(ScheduleOne.NPCs.NPC ilNpc, string message)
         {
