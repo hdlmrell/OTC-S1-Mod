@@ -1842,10 +1842,20 @@ namespace OverTheCounter.Logic
                 try
                 {
                     var netObj = npc.gameObject.GetComponent<FishNet.Object.NetworkObject>();
-                    if (netObj != null && netObj.ObjectId == objectId)
-                        return npc;
+                    if (netObj == null || netObj.ObjectId != objectId) continue;
+
+                    if (!NpcSpawner.IsOtcClone(npc))
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Manager,
+                            $"ObjectId {objectId} belongs to {npc.gameObject.name}, which is not an OTC clone, not adopting it");
+                        return null;
+                    }
+                    return npc;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"ObjectId check failed for {npc.gameObject.name}: {ex.Message}");
+                }
             }
 
             return null;

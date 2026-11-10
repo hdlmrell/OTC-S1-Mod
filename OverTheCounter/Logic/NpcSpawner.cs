@@ -10,6 +10,7 @@ using Il2CppFishNet;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Employees;
 using NPCData = Il2CppScheduleOne.NPCs.Framework.NPCData;
 #else
 using FishNet.Object;
@@ -18,6 +19,7 @@ using FishNet;
 using ScheduleOne.NPCs;
 using ScheduleOne.AvatarFramework;
 using ScheduleOne.Economy;
+using ScheduleOne.Employees;
 using NPCData = ScheduleOne.NPCs.Framework.NPCData;
 #endif
 
@@ -26,7 +28,7 @@ namespace OverTheCounter.Logic
     /// <summary>
     /// Shared NPC spawning infrastructure. Clones the game's CivilianNPC prefab,
     /// configures identity and appearance, and handles FishNet network spawning.
-    /// Used by both Drifters and Customers.
+    /// Used by Drifters, Customers and Managers.
     /// </summary>
     public static class NpcSpawner
     {
@@ -41,66 +43,96 @@ namespace OverTheCounter.Logic
         // =====================================================================
 
         /// <summary>
-        /// Finds and caches the CivilianNPC prefab from FishNet's spawnable prefabs.
+        /// Finds and caches the prefab every OTC NPC (drifters, customers, managers) is cloned from:
+        /// CivilianNPC when the game has it, otherwise the first spawnable NPC that
+        /// <see cref="IsCloneable"/> accepts. A completed search is cached even when it finds
+        /// nothing, so callers looping over every NPC don't rescan and re-log the failure.
         /// </summary>
-        private static NetworkObject GetBasePrefab()
+        internal static NetworkObject GetBasePrefab()
         {
-            if (_prefabSearched && _cachedBasePrefab != null)
+            if (_prefabSearched)
                 return _cachedBasePrefab;
-
-            _prefabSearched = true;
 
             try
             {
                 var networkManager = InstanceFinder.NetworkManager;
                 if (networkManager == null)
                 {
-                    OTCLog.Error(OTCLog.Systems.Drifter,"NetworkManager not found");
+                    OTCLog.Error(OTCLog.Systems.NPC, "NetworkManager not found");
                     return null;
                 }
 
                 var spawnablePrefabs = networkManager.SpawnablePrefabs;
                 if (spawnablePrefabs == null)
                 {
-                    OTCLog.Error(OTCLog.Systems.Drifter,"SpawnablePrefabs not available");
+                    OTCLog.Error(OTCLog.Systems.NPC, "SpawnablePrefabs not available");
                     return null;
                 }
 
+                NetworkObject fallback = null;
                 int count = spawnablePrefabs.GetObjectCount();
-
                 for (int i = 0; i < count; i++)
                 {
                     var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj == null || obj.gameObject == null)
+                    var go = obj?.gameObject;
+                    if (go == null)
                         continue;
 
-                    if (obj.gameObject.name == "CivilianNPC")
+                    if (go.name == "CivilianNPC")
                     {
+                        _prefabSearched = true;
                         _cachedBasePrefab = obj;
                         return _cachedBasePrefab;
                     }
+
+                    if (fallback == null && IsCloneable(go))
+                        fallback = obj;
                 }
 
-                // Fallback: find any prefab with NPC component
-                for (int i = 0; i < count; i++)
+                _prefabSearched = true;
+                if (fallback != null)
                 {
-                    var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj?.gameObject?.GetComponent<NPC>() != null)
-                    {
-                        _cachedBasePrefab = obj;
-                        return _cachedBasePrefab;
-                    }
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"No CivilianNPC prefab, cloning {fallback.gameObject.name}");
+                    _cachedBasePrefab = fallback;
+                    return _cachedBasePrefab;
                 }
 
-                OTCLog.Error(OTCLog.Systems.Drifter,"No suitable NPC prefab found");
+                OTCLog.Error(OTCLog.Systems.NPC, "No cloneable NPC prefab found");
                 return null;
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Drifter,$"GetBasePrefab failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"Base prefab search failed: {ex.Message}");
                 return null;
             }
         }
+
+        /// <summary>
+        /// True when the NPC is a network clone of the base prefab, the only NPCs OTC adopts.
+        /// A FishNet ObjectId is reissued every server session, so a stale id can point at a
+        /// townsperson or another mod's NPC (Bella, Static and Vic included); none of those
+        /// share the base prefab's id.
+        /// </summary>
+        internal static bool IsOtcClone(NPC npc)
+        {
+            var netObj = npc.NetworkObject;
+            var basePrefab = GetBasePrefab();
+            return netObj != null && basePrefab != null
+                && !netObj.IsSceneObject
+                && netObj.PrefabId == basePrefab.PrefabId
+                && netObj.SpawnableCollectionId == basePrefab.SpawnableCollectionId;
+        }
+
+        /// <summary>
+        /// Whether a spawnable prefab can be cloned into an OTC NPC. Employees are refused: their
+        /// configuration only exists after a property is assigned, so a clone throws every tick.
+        /// S1API prefabs are refused: they are other mods' characters (OTC's own Bella, Static and
+        /// Vic among them), and a clone would carry that character's identity and dialogue.
+        /// </summary>
+        private static bool IsCloneable(GameObject prefab) =>
+            prefab.GetComponent<NPC>() != null
+            && prefab.GetComponent<Employee>() == null
+            && !prefab.name.StartsWith("S1API_", StringComparison.Ordinal);
 
         // =====================================================================
         //  Spawn / Despawn

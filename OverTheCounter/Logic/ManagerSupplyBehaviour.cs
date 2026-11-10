@@ -761,16 +761,20 @@ namespace OverTheCounter.Logic
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            _manager.LogWarning($"shop lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
 
-                        // Fall back to online shop items (phone delivery)
+                        // Fall back to dead drop delivery listings (phone orders)
                         if (!found)
                         {
                             try
                             {
-                                if (supplier.OnlineShopItems != null)
+                                var deliveryListings = supplier.SupplierData?.DeliveryShopListings;
+                                if (deliveryListings != null)
                                 {
-                                    foreach (var listing in supplier.OnlineShopItems)
+                                    foreach (var listing in deliveryListings)
                                     {
                                         if (listing?.Item == null) continue;
                                         if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase))
@@ -783,7 +787,10 @@ namespace OverTheCounter.Logic
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                _manager.LogWarning($"delivery listings lookup failed for {supplier.FullName}: {ex.Message}");
+                            }
                         }
 
                         if (found && !options.Any(o => o.StoreType == StoreType.NightMarket))
@@ -2594,12 +2601,16 @@ namespace OverTheCounter.Logic
                                     cheapest = listing.Price;
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"shop lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
                         try
                         {
-                            if (supplier.OnlineShopItems != null)
+                            var deliveryListings = supplier.SupplierData?.DeliveryShopListings;
+                            if (deliveryListings != null)
                             {
-                                foreach (var listing in supplier.OnlineShopItems)
+                                foreach (var listing in deliveryListings)
                                 {
                                     if (listing?.Item == null) continue;
                                     if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase)
@@ -2608,7 +2619,10 @@ namespace OverTheCounter.Logic
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"delivery listings lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
                     }
                 }
             }

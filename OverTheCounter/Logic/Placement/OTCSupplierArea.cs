@@ -12,8 +12,10 @@ using UnityEngine.AI;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppFishNet;
 using Il2CppFishNet.Object;
+using Il2CppScheduleOne.Dialogue;
 using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Map;
+using Il2CppScheduleOne.NPCs.Schedules;
 using Il2CppScheduleOne.Storage;
 #else
 using FishNet;
@@ -21,6 +23,7 @@ using FishNet.Object;
 using ScheduleOne.Dialogue;
 using ScheduleOne.Economy;
 using ScheduleOne.Map;
+using ScheduleOne.NPCs.Schedules;
 using ScheduleOne.Storage;
 #endif
 
@@ -83,12 +86,6 @@ namespace OverTheCounter.Logic.Placement
         /// </summary>
         private const float DriftRecenterMaxDistanceFromStand = 42f;
 
-#if !IL2CPP
-        // Cached reflection for Mono — private fields on Supplier
-        private static FieldInfo _meetingGreetingField;
-        private static FieldInfo _meetingChoiceField;
-#endif
-
         /// <summary>All supplier stand locations inside the warehouse.</summary>
         public static List<SupplierLocation> WarehouseLocations => _locations;
 
@@ -122,13 +119,6 @@ namespace OverTheCounter.Logic.Placement
 
             try
             {
-#if !IL2CPP
-                _meetingGreetingField = typeof(Supplier).GetField("meetingGreeting",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-                _meetingChoiceField = typeof(Supplier).GetField("meetingChoice",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-#endif
-
                 for (int i = 0; i < StandPositions.Length; i++)
                 {
                     var loc = CreateSupplierLocation(warehouseTransform, i);
@@ -490,55 +480,65 @@ namespace OverTheCounter.Logic.Placement
         /// <summary>
         /// Enable the supplier's meeting dialogue so the shop GUI opens on interaction.
         /// </summary>
-        private static void EnableWarehouseDialogue(Supplier supplier)
-        {
-            try
-            {
-#if IL2CPP
-                var greeting = supplier.meetingGreeting;
-                var choice = supplier.meetingChoice;
-                if (greeting != null) greeting.ShouldShow = true;
-                if (choice != null) choice.Enabled = true;
-#else
-                var greeting = _meetingGreetingField?.GetValue(supplier)
-                    as DialogueController.GreetingOverride;
-                var choice = _meetingChoiceField?.GetValue(supplier)
-                    as DialogueController.DialogueChoice;
-                if (greeting != null) greeting.ShouldShow = true;
-                if (choice != null) choice.Enabled = true;
-#endif
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"EnableWarehouseDialogue: {ex.Message}");
-            }
-        }
+        private static void EnableWarehouseDialogue(Supplier supplier) =>
+            SetMeetingDialogue(supplier, true);
 
         /// <summary>
         /// Disable the supplier's meeting dialogue flags.
         /// </summary>
-        private static void DisableWarehouseDialogue(Supplier supplier)
+        private static void DisableWarehouseDialogue(Supplier supplier) =>
+            SetMeetingDialogue(supplier, false);
+
+        /// <summary>
+        /// Toggles the meeting greeting and shop choice. Their indices into the supplier's
+        /// DialogueController lists come from its meeting action, which toggles the same entries
+        /// when a vanilla meetup starts and ends.
+        /// </summary>
+        private static void SetMeetingDialogue(Supplier supplier, bool enabled)
         {
             try
             {
-#if IL2CPP
-                var greeting = supplier.meetingGreeting;
-                var choice = supplier.meetingChoice;
-                if (greeting != null) greeting.ShouldShow = false;
-                if (choice != null) choice.Enabled = false;
-#else
-                var greeting = _meetingGreetingField?.GetValue(supplier)
-                    as DialogueController.GreetingOverride;
-                var choice = _meetingChoiceField?.GetValue(supplier)
-                    as DialogueController.DialogueChoice;
-                if (greeting != null) greeting.ShouldShow = false;
-                if (choice != null) choice.Enabled = false;
-#endif
+                var meeting = FindMeetingAction(supplier);
+                var controller = supplier.DialogueHandler?.GetComponent<DialogueController>();
+                if (meeting == null || controller == null)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch,
+                        $"{supplier.FullName}: meeting dialogue not found, warehouse shop dialogue unavailable");
+                    return;
+                }
+
+                int greetingIndex = meeting.GreetingOverrideToEnable;
+                if (greetingIndex >= 0 && greetingIndex < controller.GreetingOverrides.Count)
+                    controller.GreetingOverrides[greetingIndex].ShouldShow = enabled;
+
+                int choiceIndex = meeting.ChoiceToEnable;
+                if (choiceIndex >= 0 && choiceIndex < controller.Choices.Count)
+                    controller.Choices[choiceIndex].Enabled = enabled;
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.Patch, $"DisableWarehouseDialogue: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.Patch, $"Set meeting dialogue failed for {supplier?.FullName}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// The supplier's meeting action: the location dialogue event in its schedule.
+        /// </summary>
+        private static NPCEvent_LocationDialogue FindMeetingAction(Supplier supplier)
+        {
+            var actions = supplier.Behaviour?.ScheduleManager?.ActionList;
+            if (actions == null) return null;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+#if IL2CPP
+                var meeting = actions[i]?.TryCast<NPCEvent_LocationDialogue>();
+#else
+                var meeting = actions[i] as NPCEvent_LocationDialogue;
+#endif
+                if (meeting != null) return meeting;
+            }
+            return null;
         }
 
         /// <summary>

@@ -2021,19 +2021,27 @@ namespace OverTheCounter.Logic
                     try
                     {
                         var netObj = npc.NetworkObject;
-                        if (netObj != null && netObj.ObjectId == objectId)
+                        if (netObj == null || netObj.ObjectId != objectId) continue;
+
+                        if (!NpcSpawner.IsOtcClone(npc))
                         {
-                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
-                            return npc;
+                            OTCLog.Warning(OTCLog.Systems.Drifter,
+                                $"ObjectId {objectId} belongs to {npc.gameObject.name}, which is not an OTC clone, not adopting it");
+                            break;
                         }
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
+                        return npc;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"ObjectId check failed for {npc.gameObject.name}: {ex.Message}");
+                    }
                 }
             }
 
-            // Phase 2: Position-based fallback near hotspot (when ObjectId is 0 or not found)
-            // Only matches NPCs with empty ID — FishNet-spawned drifter clones have the prefab's
-            // default empty ID, while regular game NPCs have IDs set in the scene (e.g. "stan").
+            // Phase 2: Position-based fallback near hotspot (when ObjectId is 0, not found, or points
+            // at an NPC OTC can't adopt). Only matches OTC clones nothing has given an identity yet,
+            // never clones already adopted as customers or managers.
             if (hotspot == null) return null;
 
             const float maxDistance = 50f;
@@ -2048,8 +2056,8 @@ namespace OverTheCounter.Logic
 
                 try
                 {
-                    // Skip named scene NPCs — only match bare prefab clones
-                    if (!string.IsNullOrEmpty(npc.ID)) continue;
+                    if (!NpcSpawner.IsOtcClone(npc)) continue;
+                    if (npc.HasNPCData && !string.IsNullOrEmpty(npc.ID)) continue;
 
                     var pos = npc.transform.position;
                     float distToSpawn = Vector3.Distance(pos, hotspot.SpawnPosition);
@@ -2062,7 +2070,10 @@ namespace OverTheCounter.Logic
                         bestMatch = npc;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Position match check failed for {npc.gameObject.name}: {ex.Message}");
+                }
             }
 
             if (bestMatch != null)

@@ -57,12 +57,6 @@ namespace OverTheCounter.Logic
         public static void Despawn(NPC npc) =>
             NpcSpawner.Despawn(npc);
 
-        /// <summary>
-        /// Resets the prefab cache. Call on scene transitions.
-        /// </summary>
-        public static void ResetCache() =>
-            NpcSpawner.ResetCache();
-
         // =====================================================================
         //  Appearance (delegate to NpcSpawner)
         // =====================================================================

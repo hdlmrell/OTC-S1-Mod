@@ -40,9 +40,6 @@ namespace OverTheCounter.Logic
     public static class ManagerSpawner
     {
 
-        private static NetworkObject _cachedBasePrefab;
-        private static bool _prefabSearched;
-
         // Name pools — distinct from drifter names to avoid confusion
         private static readonly string[] MaleFirstNames = {
             "Gordon", "Arthur", "Walter", "Dennis", "Harold", "Bernard", "Leonard",
@@ -59,73 +56,6 @@ namespace OverTheCounter.Logic
             "Crawford", "Thornton", "Langley", "Prescott", "Ashford", "Waverly",
             "Pemberton", "Calloway", "Drummond", "Hadley", "Sinclair", "Beckett"
         };
-
-        /// <summary>
-        /// Finds and caches the CivilianNPC prefab from the network manager's spawnable prefabs.
-        /// Shared approach with DrifterSpawner but maintains its own cache.
-        /// </summary>
-        private static NetworkObject GetBasePrefab()
-        {
-            if (_prefabSearched && _cachedBasePrefab != null)
-                return _cachedBasePrefab;
-
-            _prefabSearched = true;
-
-            try
-            {
-                var networkManager = InstanceFinder.NetworkManager;
-                if (networkManager == null)
-                {
-                    OTCLog.Error(OTCLog.Systems.Manager, "NetworkManager not found");
-                    return null;
-                }
-
-                var spawnablePrefabs = networkManager.SpawnablePrefabs;
-                if (spawnablePrefabs == null)
-                {
-                    OTCLog.Error(OTCLog.Systems.Manager, "SpawnablePrefabs not available");
-                    return null;
-                }
-
-                int count = spawnablePrefabs.GetObjectCount();
-
-                for (int i = 0; i < count; i++)
-                {
-                    var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj == null || obj.gameObject == null)
-                        continue;
-
-                    if (obj.gameObject.name == "CivilianNPC")
-                    {
-                        _cachedBasePrefab = obj;
-                        if (Config.ManagerVerboseLogging.Value)
-                            OTCLog.Msg(OTCLog.Systems.Manager, "Found CivilianNPC prefab");
-                        return _cachedBasePrefab;
-                    }
-                }
-
-                // Fallback: any prefab with NPC component
-                for (int i = 0; i < count; i++)
-                {
-                    var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj?.gameObject?.GetComponent<NPC>() != null)
-                    {
-                        _cachedBasePrefab = obj;
-                        if (Config.ManagerVerboseLogging.Value)
-                            OTCLog.Msg(OTCLog.Systems.Manager, $"Using fallback NPC prefab: {obj.gameObject.name}");
-                        return _cachedBasePrefab;
-                    }
-                }
-
-                OTCLog.Error(OTCLog.Systems.Manager, "No suitable NPC prefab found");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                OTCLog.Error(OTCLog.Systems.Manager, $"GetBasePrefab failed: {ex.Message}");
-                return null;
-            }
-        }
 
         /// <summary>
         /// Determines gender from a seed. Returns 0-1 float where >= 0.5 is female.
@@ -201,7 +131,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var basePrefab = GetBasePrefab();
+                var basePrefab = NpcSpawner.GetBasePrefab();
                 if (basePrefab == null)
                 {
                     OTCLog.Error(OTCLog.Systems.Manager, $"Cannot spawn {id}: no base prefab");
@@ -1266,15 +1196,6 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Error(OTCLog.Systems.Manager, $"Despawn failed: {ex.Message}");
             }
-        }
-
-        /// <summary>
-        /// Resets the prefab cache (call on scene transitions).
-        /// </summary>
-        public static void ResetCache()
-        {
-            _cachedBasePrefab = null;
-            _prefabSearched = false;
         }
     }
 }
