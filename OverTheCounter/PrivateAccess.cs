@@ -50,11 +50,13 @@ namespace OverTheCounter
     {
 #if !IL2CPP
         // Cached FieldInfo / PropertyInfo for Mono reflection
-        private static readonly FieldInfo _voeDatabase = AccessTools.Field(typeof(VOEmitter), "Database");
+        private static readonly FieldInfo _voeDatabase = AccessTools.Field(typeof(VOEmitter), "_currentDatabase");
         private static readonly FieldInfo _customerData = AccessTools.Field(typeof(Customer), "customerData");
         private static readonly FieldInfo _custAffinity = AccessTools.Field(typeof(Customer), "currentAffinityData");
         private static readonly FieldInfo _questTitle = AccessTools.Field(typeof(Quest), "title");
         private static readonly FieldInfo _dcHandler = AccessTools.Field(typeof(DialogueController), "handler");
+        private static readonly FieldInfo _dcInteractable = AccessTools.Field(typeof(DialogueController), "_interactable");
+        private static readonly FieldInfo _msDefaultPrompts = AccessTools.Field(typeof(ScheduleOne.State.MonoState), "_defaultInputPrompts");
         private static readonly FieldInfo _questEntryUI = AccessTools.Field(typeof(QuestEntry), "entryUI");
         private static readonly FieldInfo _miConfigPanels = AccessTools.Field(typeof(ManagementInterface), "ConfigPanelPrefabs");
         private static readonly PropertyInfo _npcMsgConv = AccessTools.Property(typeof(NPC), "MSGConversation");
@@ -70,11 +72,11 @@ namespace OverTheCounter
         private static readonly FieldInfo _movHasDestination = AccessTools.Field(typeof(NPCMovement), "_hasDestination");
 #endif
 
-        // --- VOEmitter.Database (private field on Mono, SetDatabase() is public) ---
+        // --- VOEmitter._currentDatabase (protected field, SetDatabase() is public) ---
         public static VODatabase GetDatabase(this VOEmitter emitter)
         {
 #if IL2CPP
-            return emitter.Database;
+            return emitter._currentDatabase;
 #else
             return (VODatabase)_voeDatabase?.GetValue(emitter);
 #endif
@@ -137,6 +139,26 @@ namespace OverTheCounter
             return dc.handler;
 #else
             return (DialogueHandler)_dcHandler?.GetValue(dc);
+#endif
+        }
+
+        // --- DialogueController._interactable (private field) ---
+        public static ScheduleOne.Interaction.InteractableObject GetInteractable(this DialogueController dc)
+        {
+#if IL2CPP
+            return dc._interactable;
+#else
+            return (ScheduleOne.Interaction.InteractableObject)_dcInteractable?.GetValue(dc);
+#endif
+        }
+
+        // --- MonoState._defaultInputPrompts (private serialized field) ---
+        public static ScheduleOne.UI.Input.InputPromptsData GetDefaultInputPrompts(this ScheduleOne.State.MonoState state)
+        {
+#if IL2CPP
+            return state._defaultInputPrompts;
+#else
+            return (ScheduleOne.UI.Input.InputPromptsData)_msDefaultPrompts?.GetValue(state);
 #endif
         }
 

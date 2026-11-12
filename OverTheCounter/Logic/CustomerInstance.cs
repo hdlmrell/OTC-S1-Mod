@@ -1767,8 +1767,9 @@ namespace OverTheCounter.Logic
 
                 // Zero addiction + zero relation → GetOrderDays uses
                 // t = max(0,0) = 0, so numOrders = MinOrdersPerWeek.
-                var orderDays = data.GetOrderDays(0f, 0f);
-                int days = orderDays != null ? orderDays.Count : 1;
+                var orderDays = new GameSystem.Collections.Generic.List<ScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(0f, 0f, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) days = 1;
 
                 // Casual daily slice: weekly / orderDays / 3.
@@ -1797,8 +1798,9 @@ namespace OverTheCounter.Logic
                 if (data == null) return 0f;
                 float relationDelta = customer.NPC != null ? customer.NPC.RelationData.RelationDelta / 5f : 0f;
                 float weekly = data.GetAdjustedWeeklySpend(relationDelta);
-                var orderDays = data.GetOrderDays(customer.CurrentAddiction, relationDelta);
-                int days = orderDays != null ? orderDays.Count : 0;
+                var orderDays = new GameSystem.Collections.Generic.List<ScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(customer.CurrentAddiction, relationDelta, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) return 0f;
                 return weekly / days;
             }
@@ -1918,7 +1920,7 @@ namespace OverTheCounter.Logic
                 float basePitch = isMale ? 0.8f : 1.3f;
                 float variation = 0.2f;
                 float offset = -variation / 2f + Mathf.Clamp01((seed % 10) / 10f) * variation;
-                emitter.PitchMultiplier = basePitch + offset;
+                emitter.SetDefaultPitch(basePitch + offset);
             }
             catch (Exception ex)
             {

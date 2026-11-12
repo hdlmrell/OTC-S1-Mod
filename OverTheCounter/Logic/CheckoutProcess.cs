@@ -2365,7 +2365,7 @@ namespace OverTheCounter.Logic
                 GameObject visualPrefab = null;
                 try
                 {
-                    var stored = productItem.StoredItem;
+                    var stored = productItem.StoredItemPrefab;
                     if (stored != null) visualPrefab = stored.gameObject;
                 }
                 catch (Exception ex)
@@ -2421,7 +2421,7 @@ namespace OverTheCounter.Logic
                     GameObject visualPrefab = null;
                     try
                     {
-                        var stored = productItem.StoredItem;
+                        var stored = productItem.StoredItemPrefab;
                         if (stored != null) visualPrefab = stored.gameObject;
                     }
                     catch (Exception ex)

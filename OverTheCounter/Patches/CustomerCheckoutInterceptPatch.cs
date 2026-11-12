@@ -95,6 +95,9 @@ namespace OverTheCounter.Patches
             return null;
         }
 
+        // Hovered runs every frame, so the missing-interactable warning logs once
+        private static bool _warnedNoInteractable;
+
         private static void Hovered_Postfix(DialogueController __instance)
         {
             try
@@ -107,8 +110,19 @@ namespace OverTheCounter.Patches
                 var customer = FindCheckoutReadyCustomer(npc);
                 if (customer == null) return;
 
-                __instance.IntObj.SetMessage("Checkout");
-                __instance.IntObj.SetInteractableState(InteractableObject.EInteractableState.Default);
+                var interactable = __instance.GetInteractable();
+                if (interactable == null)
+                {
+                    if (!_warnedNoInteractable)
+                    {
+                        _warnedNoInteractable = true;
+                        OTCLog.Warning(OTCLog.Systems.Patch, "DialogueController has no interactable, checkout hover text not shown");
+                    }
+                    return;
+                }
+
+                interactable.SetMessage("Checkout");
+                interactable.SetInteractableState(InteractableObject.EInteractableState.Default);
             }
             catch (Exception ex)
             {

@@ -144,10 +144,13 @@ namespace OverTheCounter.Patches
                     {
                         if (mi.ObjectSelector?.IsOpen == true) return true;
                         if (mi.TransitEntitySelector?.IsOpen == true) return true;
-                        if (mi.NPCSelector?.IsOpen == true) return true;
                     }
                 }
-                catch { /* MI not ready — safe to proceed */ }
+                catch (Exception ex)
+                {
+                    // MI not ready, so no selector can be open; proceed
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"ManagementInterface not ready for selector check: {ex.Message}");
+                }
 
                 if (GameInput.IsTyping) return true;
 

@@ -290,7 +290,7 @@ namespace OverTheCounter
                     {
                         var menu = Singleton<GameplayMenu>.Instance;
                         if (menu != null && menu.IsOpen)
-                            menu.SetIsOpen(false);
+                            menu.Close();
 
                         var origPos = stand.transform.localPosition;
                         var origRot = stand.transform.localRotation;
@@ -314,7 +314,7 @@ namespace OverTheCounter
                 {
                     var menu = Singleton<GameplayMenu>.Instance;
                     if (menu != null && menu.IsOpen)
-                        menu.SetIsOpen(false);
+                        menu.Close();
 
                     var origPos = bay.transform.localPosition;
                     var origRot = bay.transform.localRotation;
