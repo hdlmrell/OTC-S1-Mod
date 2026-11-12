@@ -880,6 +880,12 @@ namespace OverTheCounter.Logic
                     customer.SetCustData(perDrifterData);
                 }
 
+                var requestedProduct = DrifterInstance.FindProductDefinition(evt.ProductId);
+                if (requestedProduct != null)
+                    NpcSpawner.SetRequestedDrug(customer, requestedProduct.DrugType);
+                else
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{drifterId}: product '{evt.ProductId}' not found, handover panel may not open");
+
                 var productEntry = new ScheduleOne.Product.ProductList.Entry(
                     evt.ProductId,
                     expectedQuality,
@@ -895,18 +901,14 @@ namespace OverTheCounter.Logic
                     return;
                 }
 
-                // Create callback for handover completion
+                // Create callbacks for handover submit/cancel
                 var drifterIdCapture = drifterId;
-                GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float> callback =
-                    (GameSystem.Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>)
-                    new Action<HandoverScreen.EHandoverOutcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float>(
-                        (outcome, items, price) => OnDrifterHandoverClosed(drifterIdCapture, outcome, items, price));
-
-                // Success chance is 100% for pre-agreed drifter deals
-                GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float> successChance =
-                    (GameSystem.Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>)
-                    new Func<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>, float, float>(
-                        (items, askingPrice) => 1.0f);
+                GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>> onSubmit =
+                    (GameSystem.Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>>)
+                    new Action<GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance>>(
+                        items => OnDrifterHandoverClosed(drifterIdCapture, false, items));
+                GameSystem.Action onCancel =
+                    (GameSystem.Action)new Action(() => OnDrifterHandoverClosed(drifterIdCapture, true, null));
 
                 // Open HandoverScreen in Contract mode (shows expected products/payment)
                 var handoverScreen = Singleton<HandoverScreen>.Instance;
@@ -919,7 +921,11 @@ namespace OverTheCounter.Logic
                 // Stop drifter movement while the handover screen is open
                 try { drifter.GameNpc.Movement?.Stop(); } catch { }
 
-                handoverScreen.Open(contract, customer, HandoverScreen.EMode.Contract, callback, successChance, false);
+                // Contract mode computes and displays its own success chance from the contract;
+                // it may show below 100% for a pre-agreed drifter deal. The DONE button stays
+                // enabled (requireFullChanceOfSuccess = false), and acceptance is decided in
+                // OnDrifterHandoverClosed via GetProductListMatch.
+                handoverScreen.Open_Contract(contract, onSubmit, onCancel, false);
                 OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Opened HandoverScreen for {drifterId}: {evt.Quantity}x {evt.ProductName} @ ${evt.Payment}");
             }
             catch (Exception ex)
@@ -981,11 +987,11 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Callback when HandoverScreen is closed for a drifter deal.
         /// </summary>
-        private void OnDrifterHandoverClosed(string drifterId, HandoverScreen.EHandoverOutcome outcome, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items, float askingPrice)
+        private void OnDrifterHandoverClosed(string drifterId, bool cancelled, GameSystem.Collections.Generic.List<ScheduleOne.ItemFramework.ItemInstance> items)
         {
-            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover closed for {drifterId}: outcome={outcome}");
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover closed for {drifterId}: cancelled={cancelled}");
 
-            if (outcome == HandoverScreen.EHandoverOutcome.Cancelled)
+            if (cancelled)
             {
                 // Player cancelled - deal still pending, resume drifter movement
                 OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Handover cancelled for {drifterId}, deal still pending");
@@ -994,7 +1000,7 @@ namespace OverTheCounter.Logic
                 return;
             }
 
-            // outcome == Finalize - deal completed
+            // Submitted - deal completed
             if (!_activeEvents.TryGetValue(drifterId, out var evt))
                 return;
 
@@ -1060,7 +1066,8 @@ namespace OverTheCounter.Logic
                         OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] {drifterId} REJECTED deal (matchScore={matchScore:F2})");
 
                         drifter?.PlayDismissalSound();
-                        try { Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(true); } catch { }
+                        try { Singleton<HandoverScreen>.Instance?.ReturnCustomerItems(); }
+                        catch (Exception ex) { OTCLog.Warning(OTCLog.Systems.Drifter, $"{drifterId}: ReturnCustomerItems failed: {ex.Message}"); }
 
                         string[] rejectionLines = {
                             "This isn't what I asked for.",
@@ -1172,7 +1179,7 @@ namespace OverTheCounter.Logic
 
             try
             {
-                Singleton<HandoverScreen>.Instance?.ClearCustomerSlots(false);
+                Singleton<HandoverScreen>.Instance?.DestroyCustomerItems();
                 if (contract != null)
                 {
                     contract.SubmitPayment(bonusTotal);
@@ -2020,19 +2027,27 @@ namespace OverTheCounter.Logic
                     try
                     {
                         var netObj = npc.NetworkObject;
-                        if (netObj != null && netObj.ObjectId == objectId)
+                        if (netObj == null || netObj.ObjectId != objectId) continue;
+
+                        if (!NpcSpawner.IsOtcClone(npc))
                         {
-                            OTCLog.Msg(OTCLog.Systems.Drifter, $"[Manager] Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
-                            return npc;
+                            OTCLog.Warning(OTCLog.Systems.Drifter,
+                                $"ObjectId {objectId} belongs to {npc.gameObject.name}, which is not an OTC clone, not adopting it");
+                            break;
                         }
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"Found NPC by ObjectId={objectId}: {npc.gameObject.name}");
+                        return npc;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"ObjectId check failed for {npc.gameObject.name}: {ex.Message}");
+                    }
                 }
             }
 
-            // Phase 2: Position-based fallback near hotspot (when ObjectId is 0 or not found)
-            // Only matches NPCs with empty ID — FishNet-spawned drifter clones have the prefab's
-            // default empty ID, while regular game NPCs have IDs set in the scene (e.g. "stan").
+            // Phase 2: Position-based fallback near hotspot (when ObjectId is 0, not found, or points
+            // at an NPC OTC can't adopt). Only matches OTC clones nothing has given an identity yet,
+            // never clones already adopted as customers or managers.
             if (hotspot == null) return null;
 
             const float maxDistance = 50f;
@@ -2047,8 +2062,8 @@ namespace OverTheCounter.Logic
 
                 try
                 {
-                    // Skip named scene NPCs — only match bare prefab clones
-                    if (!string.IsNullOrEmpty(npc.ID)) continue;
+                    if (!NpcSpawner.IsOtcClone(npc)) continue;
+                    if (npc.HasNPCData && !string.IsNullOrEmpty(npc.ID)) continue;
 
                     var pos = npc.transform.position;
                     float distToSpawn = Vector3.Distance(pos, hotspot.SpawnPosition);
@@ -2061,7 +2076,10 @@ namespace OverTheCounter.Logic
                         bestMatch = npc;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Position match check failed for {npc.gameObject.name}: {ex.Message}");
+                }
             }
 
             if (bestMatch != null)
@@ -2434,7 +2452,8 @@ namespace OverTheCounter.Logic
             var conversations = DrifterSpawner.DrifterConversations;
             if (conversations.Count == 0) return;
 
-            var stale = conversations.Where(kvp => kvp.Value == null || kvp.Value.sender == null).Select(kvp => kvp.Key).ToList();
+            // Keyed by NPC ID; the drifter is gone once it leaves the game's NPC registry
+            var stale = conversations.Where(kvp => kvp.Value == null || NPCManager.GetNPC(kvp.Key) == null).Select(kvp => kvp.Key).ToList();
             foreach (var id in stale)
                 HideDrifterConversation(id);
         }

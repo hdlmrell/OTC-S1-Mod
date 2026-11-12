@@ -8,17 +8,19 @@ using Il2CppFishNet.Object;
 using Il2CppFishNet.Managing;
 using Il2CppFishNet;
 using Il2CppScheduleOne.NPCs;
-using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Employees;
+using NPCData = Il2CppScheduleOne.NPCs.Framework.NPCData;
 #else
 using FishNet.Object;
 using FishNet.Managing;
 using FishNet;
 using ScheduleOne.NPCs;
-using ScheduleOne.DevUtilities;
 using ScheduleOne.AvatarFramework;
 using ScheduleOne.Economy;
+using ScheduleOne.Employees;
+using NPCData = ScheduleOne.NPCs.Framework.NPCData;
 #endif
 
 namespace OverTheCounter.Logic
@@ -26,7 +28,7 @@ namespace OverTheCounter.Logic
     /// <summary>
     /// Shared NPC spawning infrastructure. Clones the game's CivilianNPC prefab,
     /// configures identity and appearance, and handles FishNet network spawning.
-    /// Used by both Drifters and Customers.
+    /// Used by Drifters, Customers and Managers.
     /// </summary>
     public static class NpcSpawner
     {
@@ -41,66 +43,96 @@ namespace OverTheCounter.Logic
         // =====================================================================
 
         /// <summary>
-        /// Finds and caches the CivilianNPC prefab from FishNet's spawnable prefabs.
+        /// Finds and caches the prefab every OTC NPC (drifters, customers, managers) is cloned from:
+        /// CivilianNPC when the game has it, otherwise the first spawnable NPC that
+        /// <see cref="IsCloneable"/> accepts. A completed search is cached even when it finds
+        /// nothing, so callers looping over every NPC don't rescan and re-log the failure.
         /// </summary>
-        private static NetworkObject GetBasePrefab()
+        internal static NetworkObject GetBasePrefab()
         {
-            if (_prefabSearched && _cachedBasePrefab != null)
+            if (_prefabSearched)
                 return _cachedBasePrefab;
-
-            _prefabSearched = true;
 
             try
             {
                 var networkManager = InstanceFinder.NetworkManager;
                 if (networkManager == null)
                 {
-                    OTCLog.Error(OTCLog.Systems.Drifter,"NetworkManager not found");
+                    OTCLog.Error(OTCLog.Systems.NPC, "NetworkManager not found");
                     return null;
                 }
 
                 var spawnablePrefabs = networkManager.SpawnablePrefabs;
                 if (spawnablePrefabs == null)
                 {
-                    OTCLog.Error(OTCLog.Systems.Drifter,"SpawnablePrefabs not available");
+                    OTCLog.Error(OTCLog.Systems.NPC, "SpawnablePrefabs not available");
                     return null;
                 }
 
+                NetworkObject fallback = null;
                 int count = spawnablePrefabs.GetObjectCount();
-
                 for (int i = 0; i < count; i++)
                 {
                     var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj == null || obj.gameObject == null)
+                    var go = obj?.gameObject;
+                    if (go == null)
                         continue;
 
-                    if (obj.gameObject.name == "CivilianNPC")
+                    if (go.name == "CivilianNPC")
                     {
+                        _prefabSearched = true;
                         _cachedBasePrefab = obj;
                         return _cachedBasePrefab;
                     }
+
+                    if (fallback == null && IsCloneable(go))
+                        fallback = obj;
                 }
 
-                // Fallback: find any prefab with NPC component
-                for (int i = 0; i < count; i++)
+                _prefabSearched = true;
+                if (fallback != null)
                 {
-                    var obj = spawnablePrefabs.GetObject(true, i);
-                    if (obj?.gameObject?.GetComponent<NPC>() != null)
-                    {
-                        _cachedBasePrefab = obj;
-                        return _cachedBasePrefab;
-                    }
+                    OTCLog.Warning(OTCLog.Systems.NPC, $"No CivilianNPC prefab, cloning {fallback.gameObject.name}");
+                    _cachedBasePrefab = fallback;
+                    return _cachedBasePrefab;
                 }
 
-                OTCLog.Error(OTCLog.Systems.Drifter,"No suitable NPC prefab found");
+                OTCLog.Error(OTCLog.Systems.NPC, "No cloneable NPC prefab found");
                 return null;
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Drifter,$"GetBasePrefab failed: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.NPC, $"Base prefab search failed: {ex.Message}");
                 return null;
             }
         }
+
+        /// <summary>
+        /// True when the NPC is a network clone of the base prefab, the only NPCs OTC adopts.
+        /// A FishNet ObjectId is reissued every server session, so a stale id can point at a
+        /// townsperson or another mod's NPC (Bella, Static and Vic included); none of those
+        /// share the base prefab's id.
+        /// </summary>
+        internal static bool IsOtcClone(NPC npc)
+        {
+            var netObj = npc.NetworkObject;
+            var basePrefab = GetBasePrefab();
+            return netObj != null && basePrefab != null
+                && !netObj.IsSceneObject
+                && netObj.PrefabId == basePrefab.PrefabId
+                && netObj.SpawnableCollectionId == basePrefab.SpawnableCollectionId;
+        }
+
+        /// <summary>
+        /// Whether a spawnable prefab can be cloned into an OTC NPC. Employees are refused: their
+        /// configuration only exists after a property is assigned, so a clone throws every tick.
+        /// S1API prefabs are refused: they are other mods' characters (OTC's own Bella, Static and
+        /// Vic among them), and a clone would carry that character's identity and dialogue.
+        /// </summary>
+        private static bool IsCloneable(GameObject prefab) =>
+            prefab.GetComponent<NPC>() != null
+            && prefab.GetComponent<Employee>() == null
+            && !prefab.name.StartsWith("S1API_", StringComparison.Ordinal);
 
         // =====================================================================
         //  Spawn / Despawn
@@ -117,9 +149,11 @@ namespace OverTheCounter.Logic
         /// <param name="lastName">Last name for the NPC.</param>
         /// <param name="position">World position to spawn at.</param>
         /// <param name="rotation">Facing rotation.</param>
+        /// <param name="configureData">Optional edits to the NPC's data (see <see cref="NpcIdentity.Apply"/>).</param>
         /// <returns>The spawned NPC, or null on failure.</returns>
         public static NPC SpawnCivilianNpc(string id, string gameObjectName,
-            string firstName, string lastName, Vector3 position, Quaternion rotation)
+            string firstName, string lastName, Vector3 position, Quaternion rotation,
+            Action<NPCData> configureData = null)
         {
             try
             {
@@ -141,11 +175,6 @@ namespace OverTheCounter.Logic
                 clone.gameObject.name = gameObjectName;
                 clone.gameObject.SetActive(false);
 
-                // Parent to NPC container
-                var npcManager = NetworkSingleton<NPCManager>.Instance;
-                if (npcManager?.NPCContainer != null)
-                    clone.gameObject.transform.SetParent(npcManager.NPCContainer, false);
-
                 // Get NPC component
                 var npc = clone.gameObject.GetComponent<NPC>();
                 if (npc == null)
@@ -154,11 +183,6 @@ namespace OverTheCounter.Logic
                     UnityEngine.Object.Destroy(clone.gameObject);
                     return null;
                 }
-
-                // Configure identity
-                npc.ID = id;
-                npc.FirstName = firstName;
-                npc.LastName = lastName;
 
                 // Remove from registry if auto-added (we'll add manually)
                 try
@@ -188,6 +212,14 @@ namespace OverTheCounter.Logic
 
                 // Activate (triggers Awake + Start on all components)
                 clone.gameObject.SetActive(true);
+
+                // Identity lives in NPCData; apply it once Awake has run
+                if (!NpcIdentity.Apply(npc, id, firstName, lastName, configureData))
+                {
+                    NPCManager.NPCRegistry?.Remove(npc);
+                    UnityEngine.Object.Destroy(clone.gameObject);
+                    return null;
+                }
 
                 // Isolate Customer component from vanilla deal system
                 IsolateCustomerComponent(npc);
@@ -357,7 +389,7 @@ namespace OverTheCounter.Logic
             {
                 if (npc.gameObject.activeSelf)
                 {
-                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Cannot add Customer to active GameObject for {npc.ID}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter,$"Cannot add Customer to active GameObject for {npc.gameObject.name}");
                     return null;
                 }
 
@@ -379,7 +411,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponent failed for {npc?.ID}: {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Drifter,$"AddCustomerComponent failed for {npc?.gameObject?.name}: {ex.Message}");
                 return null;
             }
         }
@@ -451,6 +483,26 @@ namespace OverTheCounter.Logic
             {
                 OTCLog.Warning(OTCLog.Systems.Drifter,$"IsolateCustomerComponent failed for {npc?.ID}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Makes <paramref name="drug"/> the customer's only, and so favourite, drug type. The
+        /// handover screen's customer panel shows the favourite and throws when there is none,
+        /// so call this before opening it for a synthetic customer.
+        /// </summary>
+        /// <param name="customer">A synthetic customer from <see cref="AddCustomerComponentToActive"/>.</param>
+        /// <param name="drug">The drug the NPC is asking for.</param>
+        public static void SetRequestedDrug(Customer customer, ScheduleOne.Product.EDrugType drug)
+        {
+            var affinities = customer?.GetCurrentAffinityData()?.ProductAffinities;
+            if (affinities == null)
+            {
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{customer?.gameObject.name ?? "null customer"}: no affinity data, requested drug not set");
+                return;
+            }
+
+            affinities.Clear();
+            affinities.Add(new ProductTypeAffinity { DrugType = drug, Affinity = 1f });
         }
 
         /// <summary>
@@ -561,11 +613,10 @@ namespace OverTheCounter.Logic
 
             var state = UnityEngine.Random.state;
             UnityEngine.Random.InitState(seed);
+            AvatarSettings settings = null;
             try
             {
-                var settings = npc.Avatar.CurrentSettings;
-                if (settings == null)
-                    settings = ScriptableObject.CreateInstance<AvatarSettings>();
+                settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 // Ensure IL2CPP lists are initialized
                 if (settings.FaceLayerSettings == null)
@@ -664,7 +715,7 @@ namespace OverTheCounter.Logic
                     settings.AccessorySettings.Add(shoeSetting);
                 }
 
-                npc.Avatar.LoadAvatarSettings(settings);
+                AvatarBridge.Apply(npc, settings);
             }
             catch (Exception ex)
             {
@@ -673,6 +724,8 @@ namespace OverTheCounter.Logic
             finally
             {
                 UnityEngine.Random.state = state;
+                if (settings != null)
+                    UnityEngine.Object.Destroy(settings);
             }
         }
 

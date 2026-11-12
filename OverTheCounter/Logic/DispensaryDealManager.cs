@@ -37,7 +37,7 @@ namespace OverTheCounter.Logic
         private const int RushThresholdMinutes = 60;     // speed boost when < 60 min to close
         private const int CutoffMinutes = 30;            // don't redirect when < 30 min to close
 
-        private const float RushSpeed = 0.4f; // same as RequestProductBehaviour fast walk
+        private const float RushSpeed = 0.4f; // walk→run blend, ~3.9 m/s fast walk
         private const string RushSpeedId = "otc_deal_rush";
 
         private const int DealXP = 20;
@@ -198,7 +198,7 @@ namespace OverTheCounter.Logic
             ResetDealCooldown(customer);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Deferred deal for {customer.NPC?.fullName} ({drugType}) until {StoreHours.OpenHour}:00");
+                $"Deferred deal for {customer.NPC?.FullName} ({drugType}) until {StoreHours.OpenHour}:00");
             return true;
         }
 
@@ -225,7 +225,7 @@ namespace OverTheCounter.Logic
                     if (target == null)
                     {
                         OTCLog.Msg(OTCLog.Systems.Customer,
-                            $"Deferred deal for {deal.Customer.NPC.fullName}: no building available, skipping");
+                            $"Deferred deal for {deal.Customer.NPC.FullName}: no building available, skipping");
                         continue;
                     }
 
@@ -286,15 +286,14 @@ namespace OverTheCounter.Logic
             // Apply rush speed if close to closing time
             if (ShouldRush())
             {
-                var speedControl = new NPCSpeedController.SpeedControl(RushSpeedId, 5, RushSpeed);
-                vanillaCustomer.NPC.Movement.SpeedController.AddSpeedControl(speedControl);
+                vanillaCustomer.NPC.Movement.SpeedController.AddBlendSpeedControl(RushSpeedId, 5, RushSpeed);
             }
 
             // Create deal CustomerInstance wrapping the vanilla NPC
             var customer = CustomerInstance.CreateFromDealNPC(vanillaCustomer, target, preWarpPosition);
             if (customer == null)
             {
-                OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: CreateFromDealNPC returned null for {vanillaCustomer.NPC.fullName}");
+                OTCLog.Warning(OTCLog.Systems.Customer, $"Redirect failed: CreateFromDealNPC returned null for {vanillaCustomer.NPC.FullName}");
                 RedirectedNpcIds.Remove(vanillaCustomer.NPC.ID);
                 vanillaCustomer.NPC.Movement.SpeedController.RemoveSpeedControl(RushSpeedId);
                 vanillaCustomer.NPC.Movement.Warp(preWarpPosition);
@@ -312,7 +311,7 @@ namespace OverTheCounter.Logic
             customer.WalkTo(target.ExteriorApproachPosition);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Redirected {vanillaCustomer.NPC.fullName} to {target.Name} for {drugType} deal (warp: {spawnPoint.Position}, shackDaily: {_shackDailyCount})");
+                $"Redirected {vanillaCustomer.NPC.FullName} to {target.Name} for {drugType} deal (warp: {spawnPoint.Position}, shackDaily: {_shackDailyCount})");
 
             return true;
         }
@@ -368,13 +367,13 @@ namespace OverTheCounter.Logic
             {
                 customer.AssignedCounter.DepositToRegister(tip);
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Deal tip: ${tip:F2} from {vanillaCustomer.NPC?.fullName}");
+                    $"Deal tip: ${tip:F2} from {vanillaCustomer.NPC?.FullName}");
             }
 
             ResetDealCooldown(vanillaCustomer);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Deal rewards applied for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, tip=${tip:F2}, sale=${saleTotal:F2}");
+                $"Deal rewards applied for {vanillaCustomer.NPC?.FullName}: XP={DealXP}, tip=${tip:F2}, sale=${saleTotal:F2}");
         }
 
         /// <summary>
@@ -391,7 +390,7 @@ namespace OverTheCounter.Logic
             ResetDealCooldown(vanillaCustomer);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Deal rewards (non-monetary) for {vanillaCustomer.NPC?.fullName}: XP={DealXP}, sale=${saleTotal:F2}");
+                $"Deal rewards (non-monetary) for {vanillaCustomer.NPC?.FullName}: XP={DealXP}, sale=${saleTotal:F2}");
         }
 
         private static void ApplyXP()
@@ -522,7 +521,7 @@ namespace OverTheCounter.Logic
                 prop2?.SetValue(vanillaCustomer, 0);
 #endif
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Reset deal cooldown for {vanillaCustomer.NPC?.fullName}");
+                    $"Reset deal cooldown for {vanillaCustomer.NPC?.FullName}");
             }
             catch (System.Exception ex)
             {
@@ -557,7 +556,7 @@ namespace OverTheCounter.Logic
                 behaviour.enabled = false;
 
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Suppressed vanilla behaviour for {npc.fullName}");
+                    $"Suppressed vanilla behaviour for {npc.FullName}");
             }
             catch (System.Exception ex)
             {
@@ -581,7 +580,7 @@ namespace OverTheCounter.Logic
                 behaviour.enabled = true;
 
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Restored vanilla behaviour for {npc.fullName}");
+                    $"Restored vanilla behaviour for {npc.FullName}");
             }
             catch (System.Exception ex)
             {
@@ -617,7 +616,7 @@ namespace OverTheCounter.Logic
             if (nav != null && npc?.Movement != null && nav.IsNPCInside(npc.Movement))
             {
                 OTCLog.Msg(OTCLog.Systems.Customer,
-                    $"Deal NPC {npc.fullName} still inside building during release — recalling");
+                    $"Deal NPC {npc.FullName} still inside building during release — recalling");
                 nav.RecallNPC(npc.Movement);
             }
 
@@ -629,7 +628,7 @@ namespace OverTheCounter.Logic
                 RedirectedNpcIds.Remove(npc.ID);
 
             OTCLog.Msg(OTCLog.Systems.Customer,
-                $"Released deal NPC {npc?.fullName} back to vanilla behavior");
+                $"Released deal NPC {npc?.FullName} back to vanilla behavior");
         }
 
         /// <summary>Resets daily counters. Called from CustomerManager.OnDayPass().</summary>

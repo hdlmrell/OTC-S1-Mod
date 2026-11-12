@@ -170,14 +170,14 @@ namespace OverTheCounter
             // Drifters + customers are transient - despawn on scene transitions (save/load)
             DrifterInstance.CleanupAll();
             CustomerInstance.CleanupAll();
-            DrifterSpawner.ResetCache();
             BudtenderInstance.CleanupAll();
             _budtendersRestored = false;
 
             // Clean up previous scene's managers — respawned from ManagerSaveData after load
             ManagerSaveData.ResetInstance();
             ManagerInstance.CleanupAll();
-            ManagerSpawner.ResetCache();
+            // Base prefab shared by drifters, customers, budtenders and managers
+            NpcSpawner.ResetCache();
             MugshotUtility.ResetSession();
 
             if (!GameObject.Find("OTC_MinimapController"))

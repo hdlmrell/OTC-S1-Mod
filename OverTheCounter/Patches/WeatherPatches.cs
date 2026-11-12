@@ -88,11 +88,12 @@ namespace OverTheCounter.Patches
         {
             try
             {
-                var isUnderCover = AccessTools.Method(typeof(EnvironmentManager),
-                    nameof(EnvironmentManager.IsPositionUnderCover));
+                var isUnderCover = AccessTools.Method(typeof(EnvironmentManager), "IsPositionUnderCover");
                 if (isUnderCover != null)
                     harmony.Patch(isUnderCover,
                         postfix: new HarmonyMethod(typeof(WeatherPatches), nameof(IsUnderCover_Postfix)));
+                else
+                    OTCLog.Warning(OTCLog.Systems.Patch, "EnvironmentManager.IsPositionUnderCover not found, weather will not be suppressed indoors");
 
                 var updateVolume = AccessTools.Method(typeof(WeatherVolume),
                     nameof(WeatherVolume.UpdateVolume));

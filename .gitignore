@@ -48,3 +48,6 @@ docs/
 
 package.bat
 package.py
+
+# MP test harness — local-only, never committed
+OverTheCounter/Testing/

@@ -254,8 +254,7 @@ namespace OverTheCounter.Logic
 
                 speedCtrl.RemoveSpeedControl("manager");
                 float speedVal = ManagerUpgrades.GetSpeedControlValue(Configuration.SpeedTier);
-                speedCtrl.AddSpeedControl(
-                    new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("manager", 1, speedVal));
+                speedCtrl.AddBlendSpeedControl("manager", 1, speedVal);
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplySpeedUpgrade: tier={Configuration.SpeedTier} speed={speedVal:F3}");
@@ -288,7 +287,8 @@ namespace OverTheCounter.Logic
                     slot.SetSlotOwner(inventory.Cast<ScheduleOne.ItemFramework.IItemSlotOwner>());
                 }
 
-                inventory.SlotCount = target;
+                if (GameNpc.NPCData != null)
+                    GameNpc.NPCData.Inventory.InventorySlotCount = target;
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log($"ApplyInventoryCapacity: {current}→{target} slots");
@@ -484,7 +484,7 @@ namespace OverTheCounter.Logic
                 OTCLog.Warning(OTCLog.Systems.Manager, $"No ManagerLocation for {business.PropertyCode}, using business spawn point");
             }
 
-            var (npc, avatarSettings) = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
+            var npc = ManagerSpawner.Spawn(id, seed, spawnPos, spawnRot);
             if (npc == null)
             {
                 OTCLog.Error(OTCLog.Systems.Manager, $"Failed to spawn manager NPC for {id}");
@@ -507,8 +507,7 @@ namespace OverTheCounter.Logic
             // Set up dialogue choices (fire/transfer)
             ManagerSpawner.SetupDialogueChoices(instance);
 
-            // Generate mugshot using the exact settings from ApplyAppearance
-            instance.GenerateMugshot(avatarSettings);
+            instance.GenerateMugshot();
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -539,16 +538,10 @@ namespace OverTheCounter.Logic
             }
 
             var (firstName, lastName) = ManagerSpawner.GetManagerName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName, ManagerSpawner.ConfigureManagerData))
+                return null;
 
-            // Clear stale mugshot from the source prefab so MugshotUtility
-            // polling detects our freshly generated sprite, not the clone's.
-            existingNpc.SetMSGConversation(null);
-            existingNpc.MugshotSprite = null;
-
-            var avatarSettings = ManagerSpawner.ApplyAppearance(existingNpc, seed);
+            ManagerSpawner.ApplyAppearance(existingNpc, seed);
             ManagerSpawner.InitializeMessaging(existingNpc);
             ManagerSpawner.EnsureVoiceDatabase(existingNpc);
 
@@ -564,15 +557,14 @@ namespace OverTheCounter.Logic
             Active[id] = instance;
 
             // Set up inventory and dialogue choices
-            ManagerSpawner.SetupInventory(existingNpc);
+            ManagerSpawner.EnsureInventoryPresent(existingNpc);
             ManagerSpawner.SetupDialogueChoices(instance);
 
             // Apply upgrade tiers (config will be deserialized shortly after by ApplyManagerSlot)
             instance.ApplySpeedUpgrade();
             instance.ApplyInventoryCapacity();
 
-            // Generate mugshot using the exact settings from ApplyAppearance
-            instance.GenerateMugshot(avatarSettings);
+            instance.GenerateMugshot();
 
             // Always-on map marker (like dealers)
             instance.SetupMapMarker();
@@ -697,20 +689,24 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(WALK_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogWarning($"set avoidance priority {WALK_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         private void RestoreIdlePriority()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(IDLE_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogWarning($"set avoidance priority {IDLE_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         private void WarpToPosition(Vector3 position)
@@ -729,20 +725,19 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Generates a mugshot from the NPC's avatar settings via MugshotUtility.
-        /// If explicit settings are provided, those are used directly for the capture
-        /// (ensures host/client determinism). Otherwise falls back to Avatar.CurrentSettings.
+        /// Generates a mugshot of the look stored in the NPC's data (seeded, so host and clients
+        /// render the same face) via MugshotUtility.
         /// Updates NPC.MugshotSprite, the locker display, phone messaging icon, and map POI.
         /// </summary>
-        public void GenerateMugshot(ScheduleOne.AvatarFramework.AvatarSettings explicitSettings = null)
+        public void GenerateMugshot()
         {
             if (Config.ManagerVerboseLogging.Value)
-                Log($"GenerateMugshot() called (explicitSettings={explicitSettings != null})");
+                Log("GenerateMugshot() called");
             MugshotUtility.Generate(GameNpc, $"Manager {Id}", sprite =>
             {
                 if (sprite == null) return;
 
-                GameNpc.MugshotSprite = sprite;
+                NpcIdentity.SetMugshot(GameNpc, sprite);
 
                 // Locker — S1API creates sprites with Vector2.zero pivot (bottom-left),
                 // but the 3D SpriteRenderer on the clipboard needs centered pivot.
@@ -764,7 +759,7 @@ namespace OverTheCounter.Logic
 
                 if (Config.ManagerVerboseLogging.Value)
                     Log("mugshot applied to NPC + messaging");
-            }, explicitSettings);
+            });
         }
 
         /// <summary>
@@ -895,7 +890,7 @@ namespace OverTheCounter.Logic
                 catch { }
 
                 // If the NPC still has an active destination, nothing to do
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 if (TargetLocation != null && !ArrivedAtDestination)
                 {
@@ -973,7 +968,7 @@ namespace OverTheCounter.Logic
             if (locker.AssignedEmployee != null)
             {
                 if (Config.ManagerVerboseLogging.Value)
-                    Log($"clearing existing employee '{locker.AssignedEmployee.fullName}' from locker");
+                    Log($"clearing existing employee '{locker.AssignedEmployee.FullName}' from locker");
                 locker.SetAssignedEmployee(null);
             }
 
@@ -1267,7 +1262,7 @@ namespace OverTheCounter.Logic
                 var conv = GameNpc?.GetMSGConversation();
                 if (conv == null) return;
 
-                conv.messageHistory?.Clear();
+                conv.ResetConversation();
 
                 // Only hide the phone entry if the conversation has one
                 // (our cloned NPCs skip CreateConversationUI so entry is null)
@@ -1844,10 +1839,20 @@ namespace OverTheCounter.Logic
                 try
                 {
                     var netObj = npc.gameObject.GetComponent<FishNet.Object.NetworkObject>();
-                    if (netObj != null && netObj.ObjectId == objectId)
-                        return npc;
+                    if (netObj == null || netObj.ObjectId != objectId) continue;
+
+                    if (!NpcSpawner.IsOtcClone(npc))
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Manager,
+                            $"ObjectId {objectId} belongs to {npc.gameObject.name}, which is not an OTC clone, not adopting it");
+                        return null;
+                    }
+                    return npc;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Manager, $"ObjectId check failed for {npc.gameObject.name}: {ex.Message}");
+                }
             }
 
             return null;

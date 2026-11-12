@@ -13,14 +13,12 @@ using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.PlayerScripts.Health;
 using Il2CppScheduleOne.UI;
 using Il2CppTMPro;
-using GameCanvasScaler = Il2CppScheduleOne.UI.CanvasScaler;
 #else
 using ScheduleOne.DevUtilities;
 using ScheduleOne.PlayerScripts;
 using ScheduleOne.PlayerScripts.Health;
 using ScheduleOne.UI;
 using TMPro;
-using GameCanvasScaler = ScheduleOne.UI.CanvasScaler;
 #endif
 
 namespace OverTheCounter.UI
@@ -36,9 +34,14 @@ namespace OverTheCounter.UI
 
         private static readonly string[] RomanTiers = { "", "I", "II", "III", "IV", "V" };
 
-        // Own canvas
-        private GameObject _canvasObj;
+        // Reused every frame by RepositionAboveHotbar() to avoid per-frame allocation
+        private static readonly Vector3[] HotbarCorners = new Vector3[4];
+
+        // Parented onto the game HUD canvas so we inherit its scaler.
         private RectTransform _canvasRect;
+        private RectTransform _hotbarRect;
+        private GameObject _container;
+        private RectTransform _containerRect;
 
         // Health bar (left)
         private GameObject _healthBarObj;
@@ -105,6 +108,9 @@ namespace OverTheCounter.UI
             {
                 if (Player.Local == null) return;
 
+                if (_built && (_container == null || _containerRect == null || _canvasRect == null || _hotbarRect == null))
+                    _built = false;
+
                 if (!_built)
                     TryBuild();
 
@@ -114,12 +120,14 @@ namespace OverTheCounter.UI
                 bool gameHudHidden = Singleton<HUD>.InstanceExists && !Singleton<HUD>.Instance.canvas.enabled;
                 if (gameHudHidden)
                 {
-                    if (_canvasObj != null && _canvasObj.activeSelf)
-                        _canvasObj.SetActive(false);
+                    if (_container != null && _container.activeSelf)
+                        _container.SetActive(false);
                     return;
                 }
-                if (_canvasObj != null && !_canvasObj.activeSelf)
-                    _canvasObj.SetActive(true);
+                if (_container != null && !_container.activeSelf)
+                    _container.SetActive(true);
+
+                RepositionAboveHotbar();
 
                 bool hpEnabled = Config.HUDShowHealth.Value;
                 bool stamEnabled = Config.HUDShowStamina.Value;
@@ -158,54 +166,52 @@ namespace OverTheCounter.UI
         {
             if (!Singleton<HUD>.InstanceExists) return;
             var hud = Singleton<HUD>.Instance;
-            if (hud == null || hud.canvas == null) return;
+            if (hud == null || hud.canvas == null || hud.canvasRect == null) return;
 
-            // Own overlay canvas (same pattern as MinimapOverlay)
-            _canvasObj = new GameObject("OTC_HUDBarCanvas");
-            var canvas = _canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 0;
-            var scaler = _canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
-            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
-            _canvasObj.AddComponent<GameCanvasScaler>();
-            UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
-            Canvas.ForceUpdateCanvases();
+            var hotbar = hud.HotbarContainer;
+            if (hotbar == null) return;
 
-            _canvasRect = _canvasObj.GetComponent<RectTransform>();
-            Canvas.ForceUpdateCanvases();
+            // Parent onto the game HUD canvas so we inherit its CanvasScaler
+            // and the player's Interface Scale. We do NOT parent onto
+            // HotbarContainer itself because it has layout-group / sizing
+            // behavior that compresses arbitrary children.
+            _canvasRect = hud.canvasRect;
+            _hotbarRect = hotbar;
 
-            float canvasW = _canvasRect.rect.width;
             float barHeight = 22f;
-            float barWidth = canvasW * 0.48f;
+            float barWidth = 920f; // reference-pixel width, hotbar-sized at 1080p
 
-            // Container: bottom-center of canvas, positioned just above hotbar
-            var container = new GameObject("OTC_HUDBars");
-            container.transform.SetParent(_canvasRect, false);
-            var containerRect = container.AddComponent<RectTransform>();
-            containerRect.anchorMin = new Vector2(0.5f, 0f);
-            containerRect.anchorMax = new Vector2(0.5f, 0f);
-            containerRect.pivot = new Vector2(0.5f, 0f);
-            containerRect.sizeDelta = new Vector2(barWidth, barHeight);
-            containerRect.anchoredPosition = new Vector2(0f, 105f);
+            // Container: bottom-center of game HUD canvas. Its Y is updated
+            // each frame by RepositionAboveHotbar() using the hotbar's real
+            // world-space top edge, so the offset is correct at every
+            // resolution and Interface Scale setting.
+            _container = new GameObject("OTC_HUDBars");
+            // Add RectTransform before parenting into the canvas hierarchy
+            // so IL2CPP interop never tries to cast a plain Transform.
+            _containerRect = _container.AddComponent<RectTransform>();
+            _containerRect.SetParent(_canvasRect, false);
+            _containerRect.anchorMin = new Vector2(0.5f, 0f);
+            _containerRect.anchorMax = new Vector2(0.5f, 0f);
+            _containerRect.pivot = new Vector2(0.5f, 0f);
+            _containerRect.sizeDelta = new Vector2(barWidth, barHeight);
+            _containerRect.anchoredPosition = new Vector2(0f, 0f);
 
             // Three bars: 31% each with 3.5% gaps between
             float barFrac = 0.31f;
-            float gap = 0.035f;
+            float barGap = 0.035f;
 
             // Health bar (left) - muted red
-            _healthBarObj = CreateBar(containerRect, "HealthBar", 0f, barFrac, barHeight,
+            _healthBarObj = CreateBar(_containerRect, "HealthBar", 0f, barFrac, barHeight,
                 new Color(0.6f, 0.2f, 0.2f), out _healthFill, out _healthLabel);
 
             // XP bar (middle) - muted green
-            float midLeft = barFrac + gap;
-            _xpBarObj = CreateBar(containerRect, "XPBar", midLeft, midLeft + barFrac, barHeight,
+            float midLeft = barFrac + barGap;
+            _xpBarObj = CreateBar(_containerRect, "XPBar", midLeft, midLeft + barFrac, barHeight,
                 new Color(0.2f, 0.55f, 0.25f), out _xpFill, out _xpLabel);
 
             // Stamina bar (right) - muted amber
-            float rightLeft = midLeft + barFrac + gap;
-            _staminaBarObj = CreateBar(containerRect, "StaminaBar", rightLeft, rightLeft + barFrac, barHeight,
+            float rightLeft = midLeft + barFrac + barGap;
+            _staminaBarObj = CreateBar(_containerRect, "StaminaBar", rightLeft, rightLeft + barFrac, barHeight,
                 new Color(0.7f, 0.55f, 0.15f), out _staminaFill, out _staminaLabel);
 
             // Capture item label reference for repositioning
@@ -222,6 +228,32 @@ namespace OverTheCounter.UI
                 _gameStaminaBarObj = gameStaminaBar.gameObject;
 
             _built = true;
+            RepositionAboveHotbar();
+        }
+
+        /// <summary>
+        /// Places the container directly above the hotbar by setting its
+        /// world-space <c>position</c> from <see cref="_hotbarRect"/>'s
+        /// live corners. Unity computes anchored position internally, so
+        /// this works regardless of the canvas pivot or scaler settings.
+        /// Gap scales with hotbar height so it stays proportional at any
+        /// resolution or Interface Scale setting.
+        /// </summary>
+        private void RepositionAboveHotbar()
+        {
+            if (_container == null || _containerRect == null || _hotbarRect == null) return;
+
+            _hotbarRect.GetWorldCorners(HotbarCorners);
+            // corners: [0]=BL, [1]=TL, [2]=TR, [3]=BR (world / screen px)
+            Vector3 topCenter = (HotbarCorners[1] + HotbarCorners[2]) * 0.5f;
+            float hotbarWorldHeight = HotbarCorners[1].y - HotbarCorners[0].y;
+            // Gap = ~15% of hotbar height, so it scales naturally.
+            float gap = Mathf.Max(8f, hotbarWorldHeight * 0.15f);
+
+            // Our pivot is bottom-center; set world position of that pivot
+            // to hotbar top-center + gap. Unity handles anchored recompute.
+            // Keep the hotbar's z so this holds on camera-space canvases too.
+            _containerRect.position = new Vector3(topCenter.x, topCenter.y + gap, topCenter.z);
         }
 
         private void UpdateItemLabelPosition(bool barsVisible)
@@ -349,7 +381,7 @@ namespace OverTheCounter.UI
                 if (health == null) return;
 
                 float current = health.CurrentHealth;
-                float max = PlayerHealth.MAX_HEALTH;
+                float max = PlayerHealth.MaxHealth;
                 float ratio = max > 0 ? Mathf.Clamp01(current / max) : 1f;
 
                 _healthFill.rectTransform.anchorMax = new Vector2(ratio, 1f);
@@ -593,8 +625,12 @@ namespace OverTheCounter.UI
                 _itemLabelMoved = false;
             }
 
-            if (_canvasObj != null)
-                Destroy(_canvasObj);
+            if (_container != null)
+                Destroy(_container);
+            _container = null;
+            _containerRect = null;
+            _canvasRect = null;
+            _hotbarRect = null;
 
             _built = false;
             _lastHealth = -1f;

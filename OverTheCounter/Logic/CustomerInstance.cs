@@ -382,9 +382,8 @@ namespace OverTheCounter.Logic
                 return Active[id];
 
             var (firstName, lastName) = DrifterInstance.GetDrifterName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName))
+                return null;
 
             NpcSpawner.GenerateRandomAppearance(existingNpc, seed);
             SetVoiceDatabase(existingNpc, seed);
@@ -925,9 +924,7 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent != null)
-                    agent.avoidancePriority = priority;
+                GameNpc?.Movement?.SetAgentAvoidancePriority(priority);
             }
             catch (Exception ex)
             {
@@ -936,20 +933,21 @@ namespace OverTheCounter.Logic
             }
         }
 
-        private int _savedAvoidanceType = -1;
+        private bool _obstacleAvoidanceDisabled;
 
         /// <summary>
         /// Disables NavMeshAgent obstacle avoidance so NPCs don't block each other
-        /// in tight building interiors. Saves the current type for restoration.
+        /// in tight building interiors. Goes through NPCMovement because the game
+        /// re-applies the agent's avoidance type every 0.5s from its own flag.
         /// </summary>
         public void DisableObstacleAvoidance()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null) return;
-                _savedAvoidanceType = (int)agent.obstacleAvoidanceType;
-                agent.obstacleAvoidanceType = UnityEngine.AI.ObstacleAvoidanceType.NoObstacleAvoidance;
+                var movement = GameNpc?.Movement;
+                if (movement == null) return;
+                movement.SetObstacleAvoidanceEnabled(false);
+                _obstacleAvoidanceDisabled = true;
             }
             catch (Exception ex)
             {
@@ -959,16 +957,16 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Restores the NPC's obstacle avoidance type to what it was before entering the building.
+        /// Re-enables obstacle avoidance if <see cref="DisableObstacleAvoidance"/> turned it off.
         /// </summary>
         public void RestoreObstacleAvoidance()
         {
             try
             {
-                var agent = GameNpc?.Movement?.Agent;
-                if (agent == null || _savedAvoidanceType < 0) return;
-                agent.obstacleAvoidanceType = (UnityEngine.AI.ObstacleAvoidanceType)_savedAvoidanceType;
-                _savedAvoidanceType = -1;
+                var movement = GameNpc?.Movement;
+                if (movement == null || !_obstacleAvoidanceDisabled) return;
+                movement.SetObstacleAvoidanceEnabled(true);
+                _obstacleAvoidanceDisabled = false;
             }
             catch (Exception ex)
             {
@@ -1769,8 +1767,9 @@ namespace OverTheCounter.Logic
 
                 // Zero addiction + zero relation → GetOrderDays uses
                 // t = max(0,0) = 0, so numOrders = MinOrdersPerWeek.
-                var orderDays = data.GetOrderDays(0f, 0f);
-                int days = orderDays != null ? orderDays.Count : 1;
+                var orderDays = new GameSystem.Collections.Generic.List<ScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(0f, 0f, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) days = 1;
 
                 // Casual daily slice: weekly / orderDays / 3.
@@ -1799,8 +1798,9 @@ namespace OverTheCounter.Logic
                 if (data == null) return 0f;
                 float relationDelta = customer.NPC != null ? customer.NPC.RelationData.RelationDelta / 5f : 0f;
                 float weekly = data.GetAdjustedWeeklySpend(relationDelta);
-                var orderDays = data.GetOrderDays(customer.CurrentAddiction, relationDelta);
-                int days = orderDays != null ? orderDays.Count : 0;
+                var orderDays = new GameSystem.Collections.Generic.List<ScheduleOne.GameTime.EDay>();
+                data.GetOrderDays(customer.CurrentAddiction, relationDelta, orderDays);
+                int days = orderDays.Count;
                 if (days <= 0) return 0f;
                 return weekly / days;
             }
@@ -1920,7 +1920,7 @@ namespace OverTheCounter.Logic
                 float basePitch = isMale ? 0.8f : 1.3f;
                 float variation = 0.2f;
                 float offset = -variation / 2f + Mathf.Clamp01((seed % 10) / 10f) * variation;
-                emitter.PitchMultiplier = basePitch + offset;
+                emitter.SetDefaultPitch(basePitch + offset);
             }
             catch (Exception ex)
             {

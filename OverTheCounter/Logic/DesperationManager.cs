@@ -208,7 +208,7 @@ namespace OverTheCounter.Logic
             // Sync desperate IDs to clients
             ConfigSyncData.MarkGameStateDirty();
 
-            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event triggered for {customer.NPC.fullName}. " +
+            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event triggered for {customer.NPC.FullName}. " +
                        $"Response deadline: {Config.ResponseDeadlineMinutes.Value} mins. Daily count: {_dailyEventsTriggered}/{Config.MaxEventsPerDay.Value}");
         }
 
@@ -236,7 +236,7 @@ namespace OverTheCounter.Logic
 
                 if (string.IsNullOrEmpty(productId))
                 {
-                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No purchase history for {customer.NPC.fullName}. " +
+                    OTCLog.Warning(OTCLog.Systems.Desperation, $"No purchase history for {customer.NPC.FullName}. " +
                                    "Using fallback contract generation.");
                     FallbackContractGeneration(customer);
                     return;
@@ -505,7 +505,7 @@ namespace OverTheCounter.Logic
                         if (parameters.Length == 1)
                         {
                             method.Invoke(customer, new object[] { contractInfo });
-                            OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract offered to player from {customer.NPC.fullName}");
+                            OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract offered to player from {customer.NPC.FullName}");
                             return;
                         }
                     }
@@ -545,7 +545,7 @@ namespace OverTheCounter.Logic
                             }
                             else
                             {
-                                OTCLog.Warning(OTCLog.Systems.Desperation, $"Fallback TryGenerateContract returned null for {customer.NPC.fullName}");
+                                OTCLog.Warning(OTCLog.Systems.Desperation, $"Fallback TryGenerateContract returned null for {customer.NPC.FullName}");
                             }
                             break;
                         }
@@ -577,9 +577,9 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Sends a text message from an NPC using the IL2CPP NPC directly.
-        /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so we
-        /// call the IL2CPP SendTextMessage method instead.
+        /// Sends a text message from a game NPC directly.
+        /// Game NPCs (customers) aren't in S1API.Entities.NPC.All, so this
+        /// goes through <see cref="NpcMessaging.SendTextMessage"/> instead.
         /// </summary>
         private void SendNPCTextMessage(ScheduleOne.NPCs.NPC ilNpc, string message)
         {
@@ -591,7 +591,7 @@ namespace OverTheCounter.Logic
             }
             catch (Exception ex)
             {
-                OTCLog.Error(OTCLog.Systems.Desperation, $"SendNPCTextMessage failed for '{ilNpc.fullName}': {ex.Message}");
+                OTCLog.Error(OTCLog.Systems.Desperation, $"SendNPCTextMessage failed for '{ilNpc.FullName}': {ex.Message}");
             }
         }
 
@@ -681,7 +681,7 @@ namespace OverTheCounter.Logic
             int cooldownEnd = GetCurrentElapsedMinutes() + Config.CooldownMinutes.Value;
             _customerCooldowns[customerId] = cooldownEnd;
 
-            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event FAILED ({failureType}) for {customer.NPC.fullName}. " +
+            OTCLog.Msg(OTCLog.Systems.Desperation, $"Event FAILED ({failureType}) for {customer.NPC.FullName}. " +
                        $"Relationship {Config.RelationshipPenalty.Value}. Cooldown until minute {cooldownEnd}.");
         }
 
@@ -864,7 +864,7 @@ namespace OverTheCounter.Logic
             {
                 var evt = kvp.Value;
                 int remaining = evt.DeadlineMinutes - Instance.GetCurrentElapsedMinutes();
-                sb.AppendLine($"  - {evt.Customer?.NPC?.fullName ?? "Unknown"}: {remaining} mins remaining");
+                sb.AppendLine($"  - {evt.Customer?.NPC?.FullName ?? "Unknown"}: {remaining} mins remaining");
             }
 
             sb.AppendLine($"Customers on Cooldown: {Instance._customerCooldowns.Count}");
@@ -911,18 +911,17 @@ namespace OverTheCounter.Logic
                 evt.DeadlineMinutes = Instance.GetCurrentElapsedMinutes() + Config.DeadlineMinutes.Value;
                 evt.IsAccepted = true;
 
-                // Make the NPC run to the deal location (matches RequestProductBehaviour speed)
+                // Make the NPC run to the deal location (~6.5 m/s, near full run)
                 try
                 {
-                    evt.Customer.NPC.Movement.SpeedController.AddSpeedControl(
-                        new ScheduleOne.NPCs.NPCSpeedController.SpeedControl("desperation", 10, 0.9f));
+                    evt.Customer.NPC.Movement.SpeedController.AddBlendSpeedControl("desperation", 10, 0.9f);
                 }
                 catch (Exception ex)
                 {
                     OTCLog.Warning(OTCLog.Systems.Desperation, $"Failed to set run speed: {ex.Message}");
                 }
 
-                OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract accepted for {evt.Customer?.NPC?.fullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
+                OTCLog.Msg(OTCLog.Systems.Desperation, $"Contract accepted for {evt.Customer?.NPC?.FullName}. New deadline: {Config.DeadlineMinutes.Value} minutes from now.");
             }
         }
 

@@ -34,6 +34,9 @@ namespace OverTheCounter.NPCs
         private ScheduleOne.NPCs.NPC _gameNpc;
         private static CocaineDefinition _cachedCocaineDef;
 
+        /// <summary>The game's default eyeball emission (EyeController.SetEyeballColor).</summary>
+        private const float EyeballEmission = 0.115f;
+
         public static StaticNPC Instance { get; private set; }
 
         /// <summary>True once SetupDialogue() has built the initial container.</summary>
@@ -178,11 +181,15 @@ namespace OverTheCounter.NPCs
 
             try
             {
-                _gameNpc.Behaviour.ConsumeProductBehaviour.onConsumeDone.AddListener(new System.Action(OnCocaineConsumed));
+#if IL2CPP
+                _gameNpc.Behaviour.ConsumeProductBehaviour.add_OnProductConsumed((Action<ProductItemInstance>)OnCocaineConsumed);
+#else
+                _gameNpc.Behaviour.ConsumeProductBehaviour.OnProductConsumed += OnCocaineConsumed;
+#endif
             }
             catch (Exception ex)
             {
-                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to register onConsumeDone listener: {ex.Message}");
+                OTCLog.Warning(OTCLog.Systems.NPC, $"Failed to subscribe to OnProductConsumed: {ex.Message}");
             }
 
             if (StaticSaveData.Instance == null)
@@ -503,7 +510,7 @@ namespace OverTheCounter.NPCs
                     (ScheduleOne.Product.Packaging.PackagingDefinition)null
                 );
 
-                _gameNpc.Behaviour.ConsumeProduct(productItem);
+                _gameNpc.Behaviour.ConsumeProduct_Server(productItem, false);
             }
             catch (Exception ex)
             {
@@ -511,15 +518,15 @@ namespace OverTheCounter.NPCs
             }
         }
 
-        private void OnCocaineConsumed()
+        private void OnCocaineConsumed(ProductItemInstance product)
         {
             try
             {
                 if (_gameNpc?.Avatar == null) return;
 
-                _gameNpc.Avatar.Eyes?.SetEyeballTint(new Color(0.78f, 0.94f, 1f, 1f), false);
+                _gameNpc.Avatar.Eyes?.SetEyeballColor(new Color(0.78f, 0.94f, 1f, 1f), EyeballEmission, false);
                 _gameNpc.Avatar.Eyes?.SetPupilDilation(1f, false);
-                _gameNpc.Avatar.Eyes?.ForceBlink();
+                _gameNpc.Avatar.Eyes?.Blink();
                 _gameNpc.Avatar.LookController.LookLerpSpeed = 10f;
             }
             catch (Exception ex)

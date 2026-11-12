@@ -1,13 +1,5 @@
 # CodeRabbit configuration.
-#
-# Auto-review is enabled and waits on GitHub Actions checks (including the
-# Inject Jira Context workflow) so the Jira block lands in the PR body
-# before the review starts. 15s ceiling matches the typical check runtime.
 
 reviews:
   auto_review:
     enabled: true
-  tools:
-    github-checks:
-      enabled: true
-      timeout_ms: 15000

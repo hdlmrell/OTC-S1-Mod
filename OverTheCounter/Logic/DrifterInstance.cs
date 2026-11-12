@@ -2,7 +2,6 @@
 using OverTheCounter.Utilities;
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Events;
 using System;
 using System.Collections.Generic;
 
@@ -64,6 +63,9 @@ namespace OverTheCounter.Logic
         // Hold references to IL2CPP callbacks to prevent GC from collecting them before arrival
         private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _destCallback;
         private GameSystem.Action<ScheduleOne.NPCs.NPCMovement.WalkResult> _spawnCallback;
+
+        // Cached so the same instance can be unsubscribed (IL2CPP wraps a new delegate per conversion)
+        private GameSystem.Action<ProductItemInstance> _consumeDoneCallback;
 
         // Stuck detection: if NPC hasn't moved significantly in StuckCheckInterval, warp to destination
         private Vector3? _lastStuckCheckPos;
@@ -161,11 +163,10 @@ namespace OverTheCounter.Logic
                 return Active[id];
             }
 
-            // Set NPC identity fields (FishNet doesn't sync these)
+            // Set NPC identity (FishNet doesn't sync NPCData)
             var (firstName, lastName) = GetDrifterName(seed);
-            existingNpc.ID = id;
-            existingNpc.FirstName = firstName;
-            existingNpc.LastName = lastName;
+            if (!NpcIdentity.Apply(existingNpc, id, firstName, lastName, DrifterSpawner.ConfigureDrifterData))
+                return null;
 
             var instance = new DrifterInstance(id, type, hotspot, seed)
             {
@@ -173,23 +174,9 @@ namespace OverTheCounter.Logic
                 IsAdopted = true
             };
 
-            var avatar = existingNpc.Avatar;
-
-            // Apply appearance (FishNet doesn't sync avatar settings)
+            // Apply appearance (FishNet doesn't sync it). AvatarBridge also stores it in the NPC's
+            // data, so a re-initialization keeps the drifter's look
             DrifterSpawner.GenerateRandomAppearance(existingNpc, seed);
-
-            // Set InitialAvatarSettings so Avatar re-loads our settings if it re-initializes
-            try
-            {
-                if (avatar != null && avatar.CurrentSettings != null)
-                    avatar.InitialAvatarSettings = avatar.CurrentSettings;
-            }
-            catch { }
-
-            // Clear any stale MSGConversation from PlayerSpawned() — it was created
-            // with the prefab's default empty name before Adopt set the real identity.
-            // InitializeMessaging will create a fresh one with the correct name.
-            try { existingNpc.SetMSGConversation(null); } catch { }
 
             // Ensure messaging, voice, and icon are set up
             DrifterSpawner.InitializeMessaging(existingNpc);
@@ -233,13 +220,12 @@ namespace OverTheCounter.Logic
 
         private static void EnqueueMugshot(NPC gameNpc, string id)
         {
-            var settings = gameNpc.Avatar?.CurrentSettings;
-            if (settings == null) return;
+            if (gameNpc.Avatar?.Appearance?.AppliedNakedAppearance == null) return;
 
             MugshotUtility.Generate(gameNpc, $"Drifter:{id}", sprite =>
             {
                 if (sprite == null || gameNpc == null) return;
-                gameNpc.MugshotSprite = sprite;
+                NpcIdentity.SetMugshot(gameNpc, sprite);
 
                 // Update the Messages app list entry icon — it was cached with the
                 // generic drifter icon when CreateConversationUI ran before the
@@ -255,8 +241,11 @@ namespace OverTheCounter.Logic
                             iconImage.sprite = sprite;
                     }
                 }
-                catch { }
-            }, UnityEngine.Object.Instantiate(settings));
+                catch (Exception ex)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"Messages icon refresh failed for {id}: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>
@@ -439,7 +428,7 @@ namespace OverTheCounter.Logic
                 if (movement == null) return;
 
                 // If the NPC still has an active destination, nothing to do
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 if (IsWalkingBack)
                 {
@@ -520,15 +509,17 @@ namespace OverTheCounter.Logic
         }
 
         /// <summary>
-        /// Sets the drifter's movement speed to run/chase speed (0.9 scale).
-        /// Used for narcs fleeing after a sting.
+        /// Sets the drifter's movement speed to run/chase speed (0.9 walk→run blend).
+        /// Used for narcs fleeing after a sting. The control is never removed and its
+        /// priority (10) outranks vanilla behaviour speeds, so the drifter keeps running
+        /// until it despawns.
         /// </summary>
         public void SetRunSpeed()
         {
             try
             {
                 if (GameNpc?.Movement == null) return;
-                GameNpc.Movement.MovementSpeedScale = 0.9f;
+                GameNpc.Movement.SpeedController.AddBlendSpeedControl("otc_drifter_run", 10, 0.9f);
             }
             catch (Exception ex)
             {
@@ -581,41 +572,35 @@ namespace OverTheCounter.Logic
 
                 IsConsuming = true;
 
-                // Walk to spawn when consume animation finishes
+                // Walk to spawn when the consume animation finishes. The server plays it on every
+                // machine through an observers RPC, so every machine hears the event
                 try
                 {
-                    if (consumeBehaviour.onConsumeDone == null)
-                        consumeBehaviour.onConsumeDone = new UnityEvent();
-
-                    consumeBehaviour.onConsumeDone.AddListener((UnityAction)(() =>
-                    {
-                        IsConsuming = false;
-                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: consume animation finished, walking to spawn");
-                        WalkToSpawn();
-                    }));
+                    _consumeDoneCallback ??= (Action<ProductItemInstance>)OnConsumeDone;
+#if IL2CPP
+                    consumeBehaviour.remove_OnProductConsumed(_consumeDoneCallback);
+                    consumeBehaviour.add_OnProductConsumed(_consumeDoneCallback);
+#else
+                    consumeBehaviour.OnProductConsumed -= _consumeDoneCallback;
+                    consumeBehaviour.OnProductConsumed += _consumeDoneCallback;
+#endif
                 }
                 catch (Exception ex)
                 {
-                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to hook onConsumeDone: {ex.Message}");
+                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to subscribe to OnProductConsumed: {ex.Message}");
                 }
 
-                // Send product and activate the behaviour
-                try
+                // Only the host starts it; a client request would make the server consume twice
+                if (NetworkHelper.IsHost)
                 {
-                    consumeBehaviour.SendProduct(productInstance, false);
-                    consumeBehaviour.Activate();
-                    OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
-                }
-                catch (Exception ex)
-                {
-                    OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: SendProduct/Activate failed ({ex.Message}), trying Activate only");
                     try
                     {
-                        consumeBehaviour.Activate();
+                        GameNpc.Behaviour.ConsumeProduct_Server(productInstance, false);
+                        OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: started consume animation for {productId}");
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Activate also failed, falling back to WalkToSpawn");
+                        OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: ConsumeProduct_Server failed ({ex.Message}), falling back to WalkToSpawn");
                         IsConsuming = false;
                         WalkToSpawn();
                         return;
@@ -633,6 +618,31 @@ namespace OverTheCounter.Logic
             }
         }
 
+        private void OnConsumeDone(ProductItemInstance product)
+        {
+            try
+            {
+#if IL2CPP
+                GameNpc?.Behaviour?.ConsumeProductBehaviour?.remove_OnProductConsumed(_consumeDoneCallback);
+#else
+                var consumeBehaviour = GameNpc?.Behaviour?.ConsumeProductBehaviour;
+                if (consumeBehaviour != null)
+                    consumeBehaviour.OnProductConsumed -= _consumeDoneCallback;
+#endif
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Drifter, $"{Id}: Failed to unsubscribe from OnProductConsumed: {ex.Message}");
+            }
+
+            // The safety timeout may already have sent it home
+            if (!IsConsuming) return;
+
+            IsConsuming = false;
+            OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: consume animation finished, walking to spawn");
+            WalkToSpawn();
+        }
+
         private IEnumerator ConsumeTimeoutCoroutine()
         {
             yield return new WaitForSeconds(10f);
@@ -645,7 +655,7 @@ namespace OverTheCounter.Logic
             }
         }
 
-        private static ProductDefinition FindProductDefinition(string productId)
+        internal static ProductDefinition FindProductDefinition(string productId)
         {
             try
             {
@@ -733,8 +743,8 @@ namespace OverTheCounter.Logic
         /// <summary>
         /// Sets the default weapon for the drifter's CombatBehaviour.
         /// Uses the prefab directly (no Instantiate) — CombatBehaviour only reads
-        /// DefaultWeapon.AssetPath to call SetWeapon() when combat starts.
-        /// Null weaponPath = fists (clears DefaultWeapon).
+        /// the default weapon's AssetPath to call SetWeapon() when combat starts.
+        /// Null weaponPath = fists (clears the default weapon).
         /// </summary>
         public void EquipWeapon(string weaponPath)
         {
@@ -749,13 +759,13 @@ namespace OverTheCounter.Logic
 
                 if (string.IsNullOrEmpty(weaponPath))
                 {
-                    combatBehaviour.DefaultWeapon = null;
+                    combatBehaviour.SetDefaultWeapon(null);
                     return;
                 }
 
                 // Load the prefab and read its AvatarWeapon component directly.
                 // Do NOT Instantiate — that creates an orphan clone whose Awake can
-                // corrupt state. CombatBehaviour only reads DefaultWeapon.AssetPath.
+                // corrupt state. CombatBehaviour only reads the default weapon's AssetPath.
                 var prefab = Resources.Load(weaponPath);
                 var prefabGo = prefab?.TryCast<GameObject>();
                 if (prefabGo == null)
@@ -772,7 +782,7 @@ namespace OverTheCounter.Logic
                 }
 
                 // IL2CPP prefabs may have empty AssetPath (serialized field not loaded).
-                // CombatBehaviour.StartCombat reads DefaultWeapon.AssetPath to call SetWeapon(),
+                // CombatBehaviour.StartCombat reads the default weapon's AssetPath to call SetWeapon(),
                 // so an empty path means the weapon silently fails to equip.
                 var assetPath = avatarWeapon.AssetPath;
                 if (string.IsNullOrEmpty(assetPath))
@@ -781,7 +791,7 @@ namespace OverTheCounter.Logic
                     OTCLog.Msg(OTCLog.Systems.Drifter, $"{Id}: fixed empty AssetPath → '{weaponPath}'");
                 }
 
-                combatBehaviour.DefaultWeapon = avatarWeapon;
+                combatBehaviour.SetDefaultWeapon(avatarWeapon);
             }
             catch (Exception ex)
             {

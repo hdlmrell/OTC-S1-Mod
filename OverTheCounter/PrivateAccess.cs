@@ -50,10 +50,13 @@ namespace OverTheCounter
     {
 #if !IL2CPP
         // Cached FieldInfo / PropertyInfo for Mono reflection
-        private static readonly FieldInfo _voeDatabase = AccessTools.Field(typeof(VOEmitter), "Database");
+        private static readonly FieldInfo _voeDatabase = AccessTools.Field(typeof(VOEmitter), "_currentDatabase");
         private static readonly FieldInfo _customerData = AccessTools.Field(typeof(Customer), "customerData");
+        private static readonly FieldInfo _custAffinity = AccessTools.Field(typeof(Customer), "currentAffinityData");
         private static readonly FieldInfo _questTitle = AccessTools.Field(typeof(Quest), "title");
         private static readonly FieldInfo _dcHandler = AccessTools.Field(typeof(DialogueController), "handler");
+        private static readonly FieldInfo _dcInteractable = AccessTools.Field(typeof(DialogueController), "_interactable");
+        private static readonly FieldInfo _msDefaultPrompts = AccessTools.Field(typeof(ScheduleOne.State.MonoState), "_defaultInputPrompts");
         private static readonly FieldInfo _questEntryUI = AccessTools.Field(typeof(QuestEntry), "entryUI");
         private static readonly FieldInfo _miConfigPanels = AccessTools.Field(typeof(ManagementInterface), "ConfigPanelPrefabs");
         private static readonly PropertyInfo _npcMsgConv = AccessTools.Property(typeof(NPC), "MSGConversation");
@@ -62,17 +65,18 @@ namespace OverTheCounter
         private static readonly PropertyInfo _custTimeDealOffered = AccessTools.Property(typeof(Customer), "TimeSinceLastDealOffered");
         private static readonly PropertyInfo _custOfferedContract = AccessTools.Property(typeof(Customer), "OfferedContractInfo");
         private static readonly PropertyInfo _custPoI = AccessTools.Property(typeof(Customer), "potentialCustomerPoI");
-        private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "CustomerSlots");
-        private static readonly FieldInfo _hsOriginalItemLocations = AccessTools.Field(typeof(HandoverScreen), "OriginalItemLocations");
-        private static readonly System.Type _hsEItemSource = typeof(HandoverScreen).GetNestedType("EItemSource", BindingFlags.NonPublic);
-        private static readonly object _hsEItemSourcePlayer = _hsEItemSource != null ? System.Enum.Parse(_hsEItemSource, "Player") : null;
+        private static readonly FieldInfo _hsCustomerSlots = AccessTools.Field(typeof(HandoverScreen), "_customerSlots");
+        private static readonly FieldInfo _hsDoneButton = AccessTools.Field(typeof(HandoverScreen), "_doneButton");
+        private static readonly FieldInfo _hsContractMode = AccessTools.Field(typeof(HandoverScreen), "_contractMode");
+        private static readonly FieldInfo _movAgent = AccessTools.Field(typeof(NPCMovement), "_agent");
+        private static readonly FieldInfo _movHasDestination = AccessTools.Field(typeof(NPCMovement), "_hasDestination");
 #endif
 
-        // --- VOEmitter.Database (private field on Mono, SetDatabase() is public) ---
+        // --- VOEmitter._currentDatabase (protected field, SetDatabase() is public) ---
         public static VODatabase GetDatabase(this VOEmitter emitter)
         {
 #if IL2CPP
-            return emitter.Database;
+            return emitter._currentDatabase;
 #else
             return (VODatabase)_voeDatabase?.GetValue(emitter);
 #endif
@@ -96,6 +100,16 @@ namespace OverTheCounter
             customer.customerData = data;
 #else
             _customerData?.SetValue(customer, data);
+#endif
+        }
+
+        // --- Customer.currentAffinityData (private field, copied from CustomerData in Awake) ---
+        public static CustomerAffinityData GetCurrentAffinityData(this Customer customer)
+        {
+#if IL2CPP
+            return customer.currentAffinityData;
+#else
+            return (CustomerAffinityData)_custAffinity?.GetValue(customer);
 #endif
         }
 
@@ -125,6 +139,26 @@ namespace OverTheCounter
             return dc.handler;
 #else
             return (DialogueHandler)_dcHandler?.GetValue(dc);
+#endif
+        }
+
+        // --- DialogueController._interactable (private field) ---
+        public static ScheduleOne.Interaction.InteractableObject GetInteractable(this DialogueController dc)
+        {
+#if IL2CPP
+            return dc._interactable;
+#else
+            return (ScheduleOne.Interaction.InteractableObject)_dcInteractable?.GetValue(dc);
+#endif
+        }
+
+        // --- MonoState._defaultInputPrompts (private serialized field) ---
+        public static ScheduleOne.UI.Input.InputPromptsData GetDefaultInputPrompts(this ScheduleOne.State.MonoState state)
+        {
+#if IL2CPP
+            return state._defaultInputPrompts;
+#else
+            return (ScheduleOne.UI.Input.InputPromptsData)_msDefaultPrompts?.GetValue(state);
 #endif
         }
 
@@ -245,30 +279,53 @@ namespace OverTheCounter
 #endif
         }
 
-        // --- HandoverScreen.CustomerSlots (private ItemSlot[]) ---
+        // --- HandoverScreen._customerSlots (private ItemSlot[]) ---
         public static ItemSlot[] GetCustomerSlots(this HandoverScreen hs)
         {
 #if IL2CPP
-            return hs.CustomerSlots;
+            return hs._customerSlots;
 #else
             return (ItemSlot[])_hsCustomerSlots?.GetValue(hs);
 #endif
         }
 
-        // --- HandoverScreen.OriginalItemLocations: register an item as coming from the player ---
-        // EItemSource is a private nested enum; IL2CPP can reference it directly, Mono uses reflection.
-        public static void TrackItemAsPlayer(this HandoverScreen hs, ItemInstance item)
+        // --- HandoverScreen._doneButton (private Button) ---
+        public static UnityEngine.UI.Button GetDoneButton(this HandoverScreen hs)
         {
 #if IL2CPP
-            hs.OriginalItemLocations[item] = HandoverScreen.EItemSource.Player;
+            return hs._doneButton;
 #else
-            var dict = _hsOriginalItemLocations?.GetValue(hs);
-            if (dict != null && _hsEItemSourcePlayer != null)
-            {
-                // Dictionary<ItemInstance, EItemSource>.Add via reflection
-                var addMethod = dict.GetType().GetMethod("set_Item");
-                addMethod?.Invoke(dict, new object[] { item, _hsEItemSourcePlayer });
-            }
+            return (UnityEngine.UI.Button)_hsDoneButton?.GetValue(hs);
+#endif
+        }
+
+        // --- HandoverScreen._contractMode.CurrentContract (contract being handed over in Contract mode) ---
+        public static Contract GetCurrentContract(this HandoverScreen hs)
+        {
+#if IL2CPP
+            return hs._contractMode?.CurrentContract;
+#else
+            return ((HandoverScreenContractMode)_hsContractMode?.GetValue(hs))?.CurrentContract;
+#endif
+        }
+
+        // --- NPCMovement._agent (private NavMeshAgent) ---
+        public static UnityEngine.AI.NavMeshAgent GetAgent(this NPCMovement movement)
+        {
+#if IL2CPP
+            return movement._agent;
+#else
+            return (UnityEngine.AI.NavMeshAgent)_movAgent?.GetValue(movement);
+#endif
+        }
+
+        // --- NPCMovement._hasDestination (private bool, true while a SetDestination walk is active) ---
+        public static bool GetHasDestination(this NPCMovement movement)
+        {
+#if IL2CPP
+            return movement._hasDestination;
+#else
+            return _movHasDestination != null && (bool)_movHasDestination.GetValue(movement);
 #endif
         }
     }

@@ -148,11 +148,12 @@ namespace OverTheCounter.Logic
             }
 
             var state = UnityEngine.Random.state;
+            AvatarSettings settings = null;
             try
             {
                 UnityEngine.Random.InitState(seed);
 
-                var settings = ScriptableObject.CreateInstance<AvatarSettings>();
+                settings = ScriptableObject.CreateInstance<AvatarSettings>();
 
                 if (settings.FaceLayerSettings == null)
                     settings.FaceLayerSettings = new GameSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
@@ -239,7 +240,7 @@ namespace OverTheCounter.Logic
                 shoeSetting.color = DarkShoes;
                 settings.AccessorySettings.Add(shoeSetting);
 
-                npc.Avatar.LoadAvatarSettings(settings);
+                AvatarBridge.Apply(npc, settings);
             }
             catch (Exception ex)
             {
@@ -248,6 +249,8 @@ namespace OverTheCounter.Logic
             finally
             {
                 UnityEngine.Random.state = state;
+                if (settings != null)
+                    UnityEngine.Object.Destroy(settings);
             }
         }
     }

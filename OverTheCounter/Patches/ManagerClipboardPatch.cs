@@ -144,10 +144,13 @@ namespace OverTheCounter.Patches
                     {
                         if (mi.ObjectSelector?.IsOpen == true) return true;
                         if (mi.TransitEntitySelector?.IsOpen == true) return true;
-                        if (mi.NPCSelector?.IsOpen == true) return true;
                     }
                 }
-                catch { /* MI not ready — safe to proceed */ }
+                catch (Exception ex)
+                {
+                    // MI not ready, so no selector can be open; proceed
+                    OTCLog.Msg(OTCLog.Systems.Manager, $"ManagementInterface not ready for selector check: {ex.Message}");
+                }
 
                 if (GameInput.IsTyping) return true;
 
@@ -306,7 +309,7 @@ namespace OverTheCounter.Patches
                 {
                     if (mgr.AssignedLocker == __instance)
                     {
-                        OTCLog.Msg(OTCLog.Systems.Manager, $"Locker claimed by employee '{employee.fullName}', clearing {mgr.Id}");
+                        OTCLog.Msg(OTCLog.Systems.Manager, $"Locker claimed by employee '{employee.FullName}', clearing {mgr.Id}");
                         mgr.ClearLocker();
                         mgr.Configuration.Locker = null;
                         break;

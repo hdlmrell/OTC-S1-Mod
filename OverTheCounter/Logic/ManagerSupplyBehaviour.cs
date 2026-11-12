@@ -761,16 +761,20 @@ namespace OverTheCounter.Logic
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            _manager.LogWarning($"shop lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
 
-                        // Fall back to online shop items (phone delivery)
+                        // Fall back to dead drop delivery listings (phone orders)
                         if (!found)
                         {
                             try
                             {
-                                if (supplier.OnlineShopItems != null)
+                                var deliveryListings = supplier.SupplierData?.DeliveryShopListings;
+                                if (deliveryListings != null)
                                 {
-                                    foreach (var listing in supplier.OnlineShopItems)
+                                    foreach (var listing in deliveryListings)
                                     {
                                         if (listing?.Item == null) continue;
                                         if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase))
@@ -783,7 +787,10 @@ namespace OverTheCounter.Logic
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                _manager.LogWarning($"delivery listings lookup failed for {supplier.FullName}: {ex.Message}");
+                            }
                         }
 
                         if (found && !options.Any(o => o.StoreType == StoreType.NightMarket))
@@ -794,7 +801,7 @@ namespace OverTheCounter.Logic
                             try
                             {
                                 supplierPos = supplier.transform.position;
-                                supplierName = supplier.fullName ?? "Supplier";
+                                supplierName = supplier.FullName ?? "Supplier";
                             }
                             catch { }
 
@@ -1222,7 +1229,7 @@ namespace OverTheCounter.Logic
                                 purchase.ItemName,
                                 -purchase.UnitPrice,
                                 buyQty,
-                                $"Supply purchase by {_manager.GameNpc?.fullName ?? "Manager"}"
+                                $"Supply purchase by {_manager.GameNpc?.FullName ?? "Manager"}"
                             );
                             success = true;
                         }
@@ -1242,7 +1249,7 @@ namespace OverTheCounter.Logic
                             purchase.ItemName,
                             -purchase.UnitPrice,
                             buyQty,
-                            $"Supply purchase by {_manager.GameNpc?.fullName ?? "Manager"}"
+                            $"Supply purchase by {_manager.GameNpc?.FullName ?? "Manager"}"
                         );
                         success = true;
                     }
@@ -1875,7 +1882,7 @@ namespace OverTheCounter.Logic
                 if (_manager.IsPlayerInteracting) return;
 
                 // Already has a destination
-                if (movement.HasDestination) return;
+                if (movement.GetHasDestination()) return;
 
                 var pos = _manager.Position ?? Vector3.zero;
                 float dist = Vector3.Distance(pos, _currentWalkTarget);
@@ -2379,10 +2386,12 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = _manager.GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = WALK_AVOIDANCE_PRIORITY;
+                _manager.GameNpc?.Movement?.SetAgentAvoidancePriority(WALK_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _manager.LogWarning($"set avoidance priority {WALK_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -2392,10 +2401,12 @@ namespace OverTheCounter.Logic
         {
             try
             {
-                var agent = _manager.GameNpc?.Movement?.Agent;
-                if (agent != null) agent.avoidancePriority = IDLE_AVOIDANCE_PRIORITY;
+                _manager.GameNpc?.Movement?.SetAgentAvoidancePriority(IDLE_AVOIDANCE_PRIORITY);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _manager.LogWarning($"set avoidance priority {IDLE_AVOIDANCE_PRIORITY} failed: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -2590,12 +2601,16 @@ namespace OverTheCounter.Logic
                                     cheapest = listing.Price;
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"shop lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
                         try
                         {
-                            if (supplier.OnlineShopItems != null)
+                            var deliveryListings = supplier.SupplierData?.DeliveryShopListings;
+                            if (deliveryListings != null)
                             {
-                                foreach (var listing in supplier.OnlineShopItems)
+                                foreach (var listing in deliveryListings)
                                 {
                                     if (listing?.Item == null) continue;
                                     if (string.Equals(listing.Item.ID, itemId, StringComparison.OrdinalIgnoreCase)
@@ -2604,7 +2619,10 @@ namespace OverTheCounter.Logic
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            OTCLog.Warning(OTCLog.Systems.Manager, $"delivery listings lookup failed for {supplier.FullName}: {ex.Message}");
+                        }
                     }
                 }
             }

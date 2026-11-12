@@ -15,7 +15,7 @@ using NPCManagerType = Il2CppScheduleOne.NPCs.NPCManager;
 using NPCType = Il2CppScheduleOne.NPCs.NPC;
 using GameManagerSingleton = Il2CppScheduleOne.DevUtilities.NetworkSingleton<Il2CppScheduleOne.DevUtilities.GameManager>;
 using GameInputType = Il2CppScheduleOne.GameInput;
-using ExitActionType = Il2CppScheduleOne.DevUtilities.ExitAction;
+using ExitActionType = Il2CppScheduleOne.ExitAction;
 #else
 using ContactsAppType = ScheduleOne.UI.Phone.ContactsApp.ContactsApp;
 using RelationCircleType = ScheduleOne.UI.Relations.RelationCircle;
@@ -23,7 +23,7 @@ using NPCManagerType = ScheduleOne.NPCs.NPCManager;
 using NPCType = ScheduleOne.NPCs.NPC;
 using GameManagerSingleton = ScheduleOne.DevUtilities.NetworkSingleton<ScheduleOne.DevUtilities.GameManager>;
 using GameInputType = ScheduleOne.GameInput;
-using ExitActionType = ScheduleOne.DevUtilities.ExitAction;
+using ExitActionType = ScheduleOne.ExitAction;
 #endif
 
 namespace OverTheCounter.Patches
@@ -82,6 +82,9 @@ namespace OverTheCounter.Patches
 
         /// <summary>Cached FieldInfo for App&lt;T&gt;.appContainer (Mono only; IL2CPP exposes it public).</summary>
         private static FieldInfo _appContainerFieldMono;
+
+        /// <summary>Cached MethodInfo for App&lt;T&gt;.Exit (private on Mono; IL2CPP exposes it public).</summary>
+        private static MethodInfo _appExitMethodMono;
 #endif
 
         /// <summary>Cached MethodInfo for the private ZoomToRect method.</summary>
@@ -327,8 +330,8 @@ namespace OverTheCounter.Patches
                 foreach (var c in circles)
                 {
                     if (c == null) continue;
-                    if (!string.IsNullOrEmpty(c.AssignedNPC_ID))
-                        idToCircle[c.AssignedNPC_ID] = c;
+                    if (!string.IsNullOrEmpty(c.NPCId))
+                        idToCircle[c.NPCId] = c;
                     circleToContainer[c] = GetConnectionsContainerForCircle(instance, c);
                 }
 
@@ -359,7 +362,7 @@ namespace OverTheCounter.Patches
                     }
                     else
                     {
-                        _connectionCache.TryGetValue(circle.AssignedNPC_ID, out connectionIds);
+                        _connectionCache.TryGetValue(circle.NPCId, out connectionIds);
                     }
 
                     if (connectionIds == null || connectionIds.Count == 0) continue;
@@ -373,8 +376,8 @@ namespace OverTheCounter.Patches
                             continue;
 
                         // Deduplicate: skip if line already exists (matches vanilla naming at Start() line 108)
-                        string fwdName = circle.AssignedNPC_ID + " -> " + otherId;
-                        string revName = otherId + " -> " + circle.AssignedNPC_ID;
+                        string fwdName = circle.NPCId + " -> " + otherId;
+                        string revName = otherId + " -> " + circle.NPCId;
                         if (connectionsContainer.Find(fwdName) != null || connectionsContainer.Find(revName) != null)
                             continue;
 
@@ -440,8 +443,15 @@ namespace OverTheCounter.Patches
                 GameInputType.RegisterExitListener(
                     new Action<ExitActionType>(__instance.Exit), 1);
 #else
+                _appExitMethodMono ??= AccessTools.Method(typeof(ScheduleOne.UI.App<ContactsAppType>), "Exit");
+                if (_appExitMethodMono == null)
+                {
+                    OTCLog.Warning(OTCLog.Systems.Patch, "App.Exit not found, exit listener not pre-registered");
+                    return;
+                }
                 GameInputType.RegisterExitListener(
-                    new GameInputType.ExitDelegate(__instance.Exit), 1);
+                    (GameInputType.ExitDelegate)Delegate.CreateDelegate(
+                        typeof(GameInputType.ExitDelegate), __instance, _appExitMethodMono), 1);
 #endif
             }
             catch (Exception ex)

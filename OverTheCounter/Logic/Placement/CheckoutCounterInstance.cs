@@ -538,10 +538,13 @@ namespace OverTheCounter.Logic.Placement
 #else
                         prodDef = productItem.Definition as ProductDefinition;
 #endif
-                        var stored = productItem.StoredItem;
+                        var stored = productItem.StoredItemPrefab;
                         if (stored != null) prefab = stored.gameObject;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        OTCLog.Warning(OTCLog.Systems.Furniture, $"Counter display prefab lookup failed: {ex.Message}");
+                    }
 
                     int col = displayIdx % 3;
                     int row = displayIdx / 3;

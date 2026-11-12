@@ -43,8 +43,17 @@ namespace OverTheCounter.UI
         private static DeadDrop _highlightedDD;
         private static Outlinable _ddOutlineEffect;
 
+        // The vanilla ObjectSelector's key hints, shown while this selector is open
+        private static ScheduleOne.UI.Input.InputPromptsData _prompts;
+
+        // Cached so the same instance can be deregistered (IL2CPP wraps a new delegate per conversion)
+        private static GameInput.ExitDelegate _exitListener;
+
         private static readonly Color HoverOutlineColor = Color.white;
         private const float RaycastRange = 5f;
+
+        /// <summary>Exit listener priority; matches the vanilla ObjectSelector so it runs before the phone and apps.</summary>
+        private const int ExitPriority = 12;
 
         public static bool IsOpen => _isOpen;
 
@@ -64,18 +73,45 @@ namespace OverTheCounter.UI
             try
             {
                 // Close the clipboard while selecting (same as ObjectSelector does)
-                Singleton<ManagementClipboard>.Instance?.Close(true);
+                Singleton<ManagementClipboard>.Instance?.CloseAndPreserveState();
 
                 // Show instruction at top of screen
                 Singleton<HUD>.Instance?.ShowTopScreenText(instruction);
 
-                // Show input prompt
-                Singleton<InputPromptsCanvas>.Instance?.LoadModule("objectselector");
+                // Show the vanilla object selector's key hints
+                _prompts = Singleton<ManagementInterface>.Instance?.ObjectSelector?.State?.GetDefaultInputPrompts();
+                if (_prompts != null)
+                    Singleton<ScheduleOne.UI.Input.InputPromptsManager>.Instance?.LoadModule(_prompts, _prompts.Position);
+                else
+                    OTCLog.Warning(OTCLog.Systems.Manager, "RouteEntitySelector: object selector has no input prompts, hints not shown");
             }
             catch (Exception ex)
             {
                 OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector Open UI setup failed: {ex.Message}");
             }
+
+            // Escape and right-click cancel, through the game's exit listeners
+            try
+            {
+#if IL2CPP
+                _exitListener ??= (Action<ExitAction>)OnExit;
+#else
+                _exitListener ??= OnExit;
+#endif
+                GameInput.RegisterExitListener(_exitListener, ExitPriority);
+            }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector exit listener registration failed: {ex.Message}");
+            }
+        }
+
+        private static void OnExit(ExitAction action)
+        {
+            if (!_isOpen || action.Used) return;
+
+            action.Used = true;
+            Close(false);
         }
 
         /// <summary>
@@ -119,13 +155,6 @@ namespace OverTheCounter.UI
                         return;
                     }
                 }
-
-                // Check for cancel (Escape or right-click)
-                if (GameInput.GetButtonDown(GameInput.ButtonCode.Escape) ||
-                    GameInput.GetButtonDown(GameInput.ButtonCode.Back))
-                {
-                    Close(false);
-                }
             }
             catch (Exception ex)
             {
@@ -139,8 +168,7 @@ namespace OverTheCounter.UI
             // Clear previous PSE outline if we're no longer hovering it
             if (_highlightedPSE != null && _highlightedPSE != hitPSE)
             {
-                try { _highlightedPSE.HideOutline(); } catch { }
-                _highlightedPSE = null;
+                HidePSEOutline();
             }
 
             // Clear previous dead drop outline if we're no longer hovering it
@@ -155,12 +183,12 @@ namespace OverTheCounter.UI
                 if (_highlightedPSE != hitPSE)
                 {
                     _highlightedPSE = hitPSE;
-                    try { hitPSE.ShowOutline(HoverOutlineColor); } catch { }
+                    try { hitPSE.ShowOutline(HoverOutlineColor); }
+                    catch (Exception ex) { OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector outline show failed: {ex.Message}"); }
                 }
 
                 // Show name in crosshair
-                string name = GetPSEName(hitPSE);
-                try { Singleton<HUD>.Instance?.CrosshairText?.Show(name, Color.white); } catch { }
+                ShowCrosshairText(GetPSEName(hitPSE));
             }
             else if (hitDD != null)
             {
@@ -170,14 +198,27 @@ namespace OverTheCounter.UI
                     ShowDeadDropOutline(hitDD);
                 }
 
-                string name = "Dead Drop (" + (hitDD.DeadDropName ?? "Unknown") + ")";
-                try { Singleton<HUD>.Instance?.CrosshairText?.Show(name, Color.white); } catch { }
+                ShowCrosshairText("Dead Drop (" + (hitDD.DeadDropName ?? "Unknown") + ")");
             }
             else
             {
                 // Nothing hovered — hide crosshair text
-                try { Singleton<HUD>.Instance?.CrosshairText?.Hide(); } catch { }
+                try { Singleton<HUD>.Instance?.CrosshairText?.Hide(); }
+                catch (Exception ex) { OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector crosshair hide failed: {ex.Message}"); }
             }
+        }
+
+        private static void ShowCrosshairText(string text)
+        {
+            try { Singleton<HUD>.Instance?.CrosshairText?.Show(text, Color.white); }
+            catch (Exception ex) { OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector crosshair show failed: {ex.Message}"); }
+        }
+
+        private static void HidePSEOutline()
+        {
+            try { _highlightedPSE.HideOutline(); }
+            catch (Exception ex) { OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector outline hide failed: {ex.Message}"); }
+            _highlightedPSE = null;
         }
 
         private static void Close(bool pushSelection, PlaceableStorageEntity pse = null, DeadDrop dd = null)
@@ -186,10 +227,7 @@ namespace OverTheCounter.UI
 
             // Clear outlines
             if (_highlightedPSE != null)
-            {
-                try { _highlightedPSE.HideOutline(); } catch { }
-                _highlightedPSE = null;
-            }
+                HidePSEOutline();
             HideDeadDropOutline();
 
             try
@@ -197,10 +235,17 @@ namespace OverTheCounter.UI
                 Singleton<HUD>.Instance?.HideTopScreenText();
                 Singleton<HUD>.Instance?.CrosshairText?.Hide();
 
-                if (Singleton<InputPromptsCanvas>.Instance?.currentModuleLabel == "objectselector")
-                    Singleton<InputPromptsCanvas>.Instance?.UnloadModule();
+                if (_prompts != null)
+                    Singleton<ScheduleOne.UI.Input.InputPromptsManager>.Instance?.UnloadModule(_prompts);
+                _prompts = null;
+
+                if (_exitListener != null)
+                    GameInput.DeregisterExitListener(_exitListener);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector close UI cleanup failed: {ex.Message}");
+            }
 
             // Reopen clipboard
             try
@@ -212,7 +257,10 @@ namespace OverTheCounter.UI
                         mi.Configurables, mi.EquippedClipboard);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Warning(OTCLog.Systems.Manager, $"RouteEntitySelector clipboard reopen failed: {ex.Message}");
+            }
 
             // Fire callback
             if (pushSelection && _callback != null)
@@ -271,7 +319,8 @@ namespace OverTheCounter.UI
         {
             if (_ddOutlineEffect != null)
             {
-                try { _ddOutlineEffect.enabled = false; } catch { }
+                try { _ddOutlineEffect.enabled = false; }
+                catch (Exception ex) { OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector dead drop outline hide failed: {ex.Message}"); }
                 _ddOutlineEffect = null;
             }
             _highlightedDD = null;
@@ -285,7 +334,10 @@ namespace OverTheCounter.UI
                 if (buildable?.ItemInstance != null)
                     return buildable.ItemInstance.Name;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                OTCLog.Msg(OTCLog.Systems.Manager, $"RouteEntitySelector item name lookup failed: {ex.Message}");
+            }
             return pse?.gameObject?.name ?? "Storage";
         }
 
